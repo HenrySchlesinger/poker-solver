@@ -84,6 +84,7 @@ fn sample_scenario(rng: &mut StdRng) -> (Hand, Board) {
 }
 
 #[test]
+#[allow(clippy::unusual_byte_groupings)] // seed layout is "tag_YYYY_MM_DD", not a pure hex literal
 fn eval_7_category_matches_reference_on_random_inputs() {
     // Deterministic seed so any failure is exactly reproducible. If
     // you change this seed, document WHY in the commit message — a
@@ -106,6 +107,7 @@ fn eval_7_category_matches_reference_on_random_inputs() {
 }
 
 #[test]
+#[allow(clippy::unusual_byte_groupings)] // seed layout is "tag_YYYY_MM_DD", not a pure hex literal
 fn eval_7_ordering_matches_reference_on_random_pairs() {
     let mut rng = StdRng::seed_from_u64(0xA8_2026_04_22_u64.wrapping_add(1));
 

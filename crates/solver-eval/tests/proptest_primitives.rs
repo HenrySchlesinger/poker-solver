@@ -13,8 +13,8 @@
 //! literal `rng_algorithm = RngAlgorithm::ChaCha` and a named failure
 //! persistence file disabled (we want flat reproducibility, not a
 //! `.proptest-regressions` dance). Seeds are pinned via `Config::with_cases`
-//! + the default strategy, which — because `proptest`'s default RNG is
-//! the XorShift deterministic mode — makes every CI run see the same
+//! plus the default strategy, which — because `proptest`'s default RNG
+//! is the XorShift deterministic mode — makes every CI run see the same
 //! input sequence.
 //!
 //! If one of these tests fails, the reported counterexample comes out
