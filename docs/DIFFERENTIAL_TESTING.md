@@ -41,19 +41,37 @@ macOS 26.2, `arm64`):
   by this — it reports "Iter: 0" and then dies with SIGSEGV =
   exit 139.) The diff harness should always pass
   `--resource_dir bin/resources` explicitly.
-- **Two fixtures successfully translate + solve**:
+- **Six fixtures successfully translate + solve** (A50 seeded `spot_015`
+  + `spot_001`; A63 extended to `spot_016`–`spot_018` and `spot_020`
+  on 2026-04-23):
 
-  | Fixture     | Street | Translate | TexasSolver solve                              | TS dump size  |
-  |-------------|--------|-----------|------------------------------------------------|---------------|
-  | `spot_015`  | river  | OK        | OK, converges to 0.07% exploitability in ~15 ms (1000 iter cap) | 214 KB        |
-  | `spot_001`  | flop   | OK        | OK, runs to completion; 20-iter smoke at 110 s wall (deep stack → deep tree), 86% exploitability after 20 iters. 1000-iter depth needs more compute than Henry's Mac supplies in a test window. | 24 MB (20 iter) |
+  | Fixture     | Street | Translate | TexasSolver solve                                                       | TS dump size     | Our compute_ms | Auto-diff ready? |
+  |-------------|--------|-----------|-------------------------------------------------------------------------|------------------|----------------|------------------|
+  | `spot_015`  | river  | OK        | OK, converges to 0.25% exploitability in ~11 ms (41 iter, acc=0.3)      | 214 KB           | 7 354          | No (combo rollup + bet-size map) |
+  | `spot_016`  | river  | OK        | OK, converges to 0.27% exploitability in ~116 ms (171 iter, acc=0.3)    | 1.0 MB           | 79 517         | No (combo rollup + bet-size map) |
+  | `spot_017`  | river  | OK        | OK, converges to 0.29% exploitability in ~147 ms (151 iter, acc=0.3)    | 1.7 MB           | 208 100        | No (combo rollup + bet-size map) |
+  | `spot_018`  | river  | OK        | OK, converges to 0.28% exploitability in ~133 ms (271 iter, acc=0.3)    | 667 KB           | 31 537         | No (combo rollup + bet-size map) |
+  | `spot_020`  | river  | OK        | OK, converges to 0.15% exploitability in <1 ms (21 iter, acc=0.3)       | 5.9 KB           | 4 029          | No (combo rollup + bet-size map) |
+  | `spot_001`  | flop   | OK        | OK, runs to completion; 20-iter smoke at 110 s wall (deep stack → deep tree), 86% exploitability after 20 iters. 1000-iter depth needs more compute than Henry's Mac supplies in a test window. | 24 MB (20 iter)  | n/a (not captured) | No (flop solve time prohibitive on laptop) |
 
-  Translated configs and the result JSONs land under
-  `target/tsconfig/` (gitignored, regenerated per run).
-- **Our-side output captured for spot_015** at
-  `target/tsconfig/spot_015.our-result.json` (882 B: aggregate action
-  frequencies + EVs, which is the summary format `solver-cli solve`
-  emits today).
+  The five river fixtures all hit the `set_accuracy 0.3` convergence
+  threshold in well under the 1000-iteration cap — TexasSolver river
+  solves are fast on a laptop. `spot_001` is the lone flop spot and
+  needs Colab-scale compute for full 1000-iter parity.
+
+  Translated configs and the full result JSONs land under
+  `target/tsconfig/` (gitignored, regenerated per run). The committed
+  oracle outputs for the river fixtures live at
+  `crates/solver-cli/tests/fixtures/oracle_outputs/` — see that
+  directory's `README.md` for file layout.
+- **Our-side outputs captured for all five river fixtures** under
+  `crates/solver-cli/tests/fixtures/oracle_outputs/spot_NNN.our.json`
+  (~700 B–1.0 KB each: aggregate action frequencies + EVs, which is
+  the summary format `solver-cli solve` emits today).
+- **Auto-diff status**: zero fixtures green yet, because all of them are
+  blocked on the same three asymmetries (rollup, bet-size name map,
+  log-line EV parse) below. Five river fixtures have the *data* in
+  place; the blocker is the comparator, not the oracle.
 
 ### Translation-format quirks (learned from TexasSolver source)
 
