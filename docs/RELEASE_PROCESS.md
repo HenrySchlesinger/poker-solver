@@ -255,6 +255,78 @@ bundle:
   `PokerSolverStatus.{ok, cacheMiss, invalidInput}` rawValues matched
   the enum in `solver.h`.
 
+### Dry-run results (v0.1.0-dryrun, 2026-04-23, A52)
+
+Re-verification run of the full pipeline after A28/A39 landed the
+release + xcframework scripts. Ran both scripts end-to-end on an
+arm64 Mac (`Darwin arm64`), verified artifacts, and exercised the
+xcframework from a temporary SwiftPM consumer.
+
+**Artifact sizes (verified):**
+
+| Asset | Exact bytes | Human |
+| --- | --- | --- |
+| `lib/libsolver_ffi.a` (universal) | 31,692,552 | ~30.2 MiB |
+| `lib/libsolver_ffi.dylib` (universal) | 33,360 | ~33 KiB |
+| `solver-v0.1.0-dryrun-macos-universal.tar.gz` | 11,545,365 | ~11 MiB |
+| `PokerSolver-v0.1.0-dryrun.xcframework.zip` | 11,541,970 | ~11 MiB |
+
+**SHA-256 (verified):**
+
+| Asset | SHA-256 |
+| --- | --- |
+| `solver-v0.1.0-dryrun-macos-universal.tar.gz` | `7e02ce4a6f8d618b68a7fc06f1a98d9188859d2aa2ea859578d7adf3c1f9ba33` |
+| `PokerSolver-v0.1.0-dryrun.xcframework.zip` | `465d8265b6971b92eece8b767403fb11b01cf7b547d8ca5be0dff04f3cfd2fcd` |
+| `lib/libsolver_ffi.a` (in-bundle) | `4058f89d2c2f0cfb9ccea74cabd84234c1ff1dac11f5e7f7c3bdb11d84f6501c` |
+| `lib/libsolver_ffi.dylib` (in-bundle) | `24d999c0aaff0961c767a6faa97eb7f4b8f2fde6aad310bd9db2ea4ff402ab4e` |
+| `include/solver.h` (in-bundle) | `426b3784839b39d0eb59224c304d82edd60d3d091741b4de1a0038e418053da8` |
+
+`swift package compute-checksum` on the xcframework zip returned
+exactly the file sha256 — these match for SPM-consumed `.zip`
+archives as expected. That's the value that goes into Package.swift
+`checksum:` when cutting the real release.
+
+**Structural validation:**
+
+- `lipo -info` on both the static and dynamic libraries reports
+  `x86_64 arm64` — universal binary confirmed on both.
+- `PokerSolver.xcframework/Info.plist` references the
+  `macos-arm64_x86_64` slice, matching the expected layout.
+- xcframework tree:
+  - `Info.plist`
+  - `macos-arm64_x86_64/libsolver_ffi.a`
+  - `macos-arm64_x86_64/Headers/module.modulemap`
+  - `macos-arm64_x86_64/Headers/solver.h`
+
+**Test-consumer SPM build:**
+
+Created a scratch SwiftPM executable under
+`/tmp/poker-solver-test-consumer/` with a single
+`.binaryTarget(path: "PokerSolver.xcframework")` pointing at the
+local xcframework dir, a one-line `main.swift` calling
+`@_silgen_name("solver_version")`, and ran `swift build`. Result:
+
+- `swift build` completed in ~4 seconds (`Build complete! (3.92s)`).
+- `.build/debug/TestConsumer` printed `0.1.0-wip` — the FFI symbol
+  resolved against the universal `libsolver_ffi.a` embedded in the
+  xcframework.
+
+**Cross-compile gotchas actually hit:**
+
+None on this run. `cargo build --release --target
+{aarch64,x86_64}-apple-darwin -p solver-ffi` both succeeded without
+any custom `CC`/`LD` overrides. The `zstd-sys`, `safe_arch`, and
+`wide` crates all cross-compiled cleanly from an arm64 host to the
+x86_64 slice. No stale `CARGO_BUILD_TARGET` in the shell, no
+`PATH`-order surprises from brewed lld.
+
+**Script status:**
+
+- `scripts/build-release.sh` — worked first run, no edits needed.
+- `scripts/build-xcframework.sh` — worked first run, no edits needed.
+- `scripts/gh-release.sh` — not exercised here (dry run, no tag
+  pushed). Status unchanged from A28/A39.
+
 ### 7. Notify consumers
 
 For v0.1, "consumers" = **Henry**, integrating into
