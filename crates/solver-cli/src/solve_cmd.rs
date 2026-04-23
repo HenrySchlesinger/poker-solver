@@ -324,8 +324,7 @@ fn aggregate_root_strategy_and_ev(
         // Walk each action once to get subtree EV for first_to_act.
         for (i, action) in root_actions.iter().enumerate() {
             let next = game.apply(root_state, action);
-            let child_ev =
-                subtree_ev_under_avg_strategy(game, &next, avg_strategy, first_to_act);
+            let child_ev = subtree_ev_under_avg_strategy(game, &next, avg_strategy, first_to_act);
             ev_acc[i] += w * child_ev as f64;
             freq_acc[i] += w * strat[i] as f64;
         }

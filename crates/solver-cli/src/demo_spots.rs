@@ -147,13 +147,21 @@ fn royal() -> Spot {
         decisions: vec![Decision {
             label: "Hero first-to-act",
             actions: vec![
-                Action { label: "check",      frequency: 0.05 },
-                Action { label: "bet 66%",    frequency: 0.00 },
-                Action { label: "bet pot",    frequency: 0.95 },
+                Action {
+                    label: "check",
+                    frequency: 0.05,
+                },
+                Action {
+                    label: "bet 66%",
+                    frequency: 0.00,
+                },
+                Action {
+                    label: "bet pot",
+                    frequency: 0.95,
+                },
             ],
         }],
-        narration:
-            "Hero holds the absolute nuts (royal flush). GTO says bet the pot \
+        narration: "Hero holds the absolute nuts (royal flush). GTO says bet the pot \
              ~95% of the time to maximize value — no villain combo is ahead, \
              and no runout can outdraw you. The small check frequency is the \
              natural \"protect against villain checking back with bluffs\" \
@@ -186,12 +194,17 @@ fn coinflip() -> Spot {
         decisions: vec![Decision {
             label: "Hero action vs villain's 15bb jam",
             actions: vec![
-                Action { label: "fold",       frequency: 0.02 },
-                Action { label: "call",       frequency: 0.98 },
+                Action {
+                    label: "fold",
+                    frequency: 0.02,
+                },
+                Action {
+                    label: "call",
+                    frequency: 0.98,
+                },
             ],
         }],
-        narration:
-            "Classic coinflip: AKs has 49.9% equity against a pocket pair \
+        narration: "Classic coinflip: AKs has 49.9% equity against a pocket pair \
              that's below the broadway threshold. At 15bb the pot odds are \
              forgiving — villain's jam risks 15bb to win ~16bb (pot + blinds), \
              so hero only needs ~48% equity to break even on a call. GTO \
@@ -226,13 +239,21 @@ fn bluff_catch() -> Spot {
         decisions: vec![Decision {
             label: "Hero facing villain's pot-sized river bet",
             actions: vec![
-                Action { label: "fold",   frequency: 0.30 },
-                Action { label: "call",   frequency: 0.67 },
-                Action { label: "raise",  frequency: 0.03 },
+                Action {
+                    label: "fold",
+                    frequency: 0.30,
+                },
+                Action {
+                    label: "call",
+                    frequency: 0.67,
+                },
+                Action {
+                    label: "raise",
+                    frequency: 0.03,
+                },
             ],
         }],
-        narration:
-            "Facing a pot-sized bet, hero needs 33% equity to break even on \
+        narration: "Facing a pot-sized bet, hero needs 33% equity to break even on \
              a call. KdQd is a bluff-catcher: it beats villain's bluffs but \
              loses to every value hand in the jamming range. GTO mixes — \
              call ~67%, fold ~30% — to make villain indifferent between \
@@ -270,9 +291,8 @@ mod tests {
     #[test]
     fn every_spot_is_findable_by_id() {
         for spot in all_spots() {
-            let found = find_spot(spot.id).unwrap_or_else(|| {
-                panic!("spot {:?} not returned by find_spot", spot.id)
-            });
+            let found = find_spot(spot.id)
+                .unwrap_or_else(|| panic!("spot {:?} not returned by find_spot", spot.id));
             assert_eq!(found.id, spot.id);
         }
     }
@@ -293,7 +313,11 @@ mod tests {
     #[test]
     fn narration_is_nonempty_and_multisentence() {
         for spot in all_spots() {
-            assert!(!spot.narration.is_empty(), "spot {:?}: empty narration", spot.id);
+            assert!(
+                !spot.narration.is_empty(),
+                "spot {:?}: empty narration",
+                spot.id
+            );
             // "2–4 sentences" rule from the task brief. Proxy: at least
             // two periods.
             let period_count = spot.narration.chars().filter(|c| *c == '.').count();

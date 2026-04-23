@@ -194,12 +194,7 @@ fn render_inputs(spot: &Spot, out: &mut impl Write) -> Result<()> {
             ")".bright_black(),
         )
     };
-    writeln!(
-        out,
-        "  {}         {}",
-        "Board:".bright_black(),
-        board_line,
-    )?;
+    writeln!(out, "  {}         {}", "Board:".bright_black(), board_line,)?;
 
     writeln!(
         out,
@@ -226,11 +221,7 @@ fn render_inputs(spot: &Spot, out: &mut impl Write) -> Result<()> {
 const ACTION_COL_WIDTH: usize = 18;
 
 fn render_decision(decision: &Decision, out: &mut impl Write) -> Result<()> {
-    writeln!(
-        out,
-        "{}",
-        section_rule("GTO STRATEGY").bright_cyan(),
-    )?;
+    writeln!(out, "{}", section_rule("GTO STRATEGY").bright_cyan(),)?;
 
     // Action labels row (e.g. "check      bet 66%    bet (pot)")
     write!(out, "{}", " ".repeat(24))?;
@@ -355,11 +346,7 @@ fn format_duration(d: Duration) -> String {
 // ---------------------------------------------------------------------------
 
 fn render_narration(spot: &Spot, out: &mut impl Write) -> Result<()> {
-    writeln!(
-        out,
-        "{}",
-        section_rule("WHAT THIS MEANS").bright_cyan(),
-    )?;
+    writeln!(out, "{}", section_rule("WHAT THIS MEANS").bright_cyan(),)?;
     // Soft-wrap to a width that fits inside the banner with a 2-space
     // indent margin. Preserves the hand-authored sentence breaks.
     let wrap_width = BANNER_WIDTH.saturating_sub(4);
@@ -400,8 +387,7 @@ fn render_footer(out: &mut impl Write) -> Result<()> {
 /// "── <label> ─────────..." section rule, sized to BANNER_WIDTH.
 fn section_rule(label: &str) -> String {
     let prefix = "── ";
-    let tail_len = BANNER_WIDTH
-        .saturating_sub(prefix.chars().count() + label.chars().count() + 1);
+    let tail_len = BANNER_WIDTH.saturating_sub(prefix.chars().count() + label.chars().count() + 1);
     format!("{prefix}{label} {}", "─".repeat(tail_len))
 }
 
@@ -532,8 +518,11 @@ mod tests {
         assert!(plain.ends_with(']'));
         // Body length should equal BAR_WIDTH.
         let body_chars: Vec<char> = plain.chars().skip(1).collect();
-        let body_chars: Vec<char> =
-            body_chars.iter().take(body_chars.len() - 1).copied().collect();
+        let body_chars: Vec<char> = body_chars
+            .iter()
+            .take(body_chars.len() - 1)
+            .copied()
+            .collect();
         assert_eq!(body_chars.len(), BAR_WIDTH);
         // All empty boxes.
         assert!(body_chars.iter().all(|c| *c == '░'), "got: {plain:?}");
