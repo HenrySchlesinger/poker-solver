@@ -23,8 +23,8 @@
 
 use std::num::ParseFloatError;
 
-/// Number of unique NLHE hole-card combos (C(52, 2)).
-const NUM_COMBOS: usize = 1326;
+use solver_eval::card::Card;
+use solver_eval::combo::{combo_index, NUM_COMBOS};
 
 /// 1326-wide weight vector over NLHE hole-card combos.
 ///
@@ -226,7 +226,7 @@ fn set_pair(weights: &mut [f32; NUM_COMBOS], rank: u8, weight: f32) {
         for s2 in (s1 + 1)..4 {
             let a = card_u8(rank, s1);
             let b = card_u8(rank, s2);
-            weights[combo_index(a, b)] = weight;
+            weights[combo_index(Card(a), Card(b))] = weight;
         }
     }
 }
@@ -319,42 +319,20 @@ fn set_two_rank(
             }
             let a = card_u8(first, s1);
             let b = card_u8(second, s2);
-            weights[combo_index(a, b)] = weight;
+            weights[combo_index(Card(a), Card(b))] = weight;
         }
     }
 }
 
 // ---------------------------------------------------------------------------
-// Local combo-index helper
+// Card construction helper
 // ---------------------------------------------------------------------------
-//
-// TODO (agent A1): swap these to `solver_eval::combo::{combo_index, ...}`
-// once A1 lands the canonical implementation. The math below matches the
-// documented canonical ordering (lexicographic over unordered pairs
-// `a < b`, both in 0..52); swapping is a drop-in.
 
-/// Encode `(rank, suit)` as the Card u8 layout used elsewhere in the repo
-/// (see `solver-eval::card::Card::new`). We don't construct `Card` here to
-/// avoid coupling the parser to types we don't control.
+/// Encode `(rank, suit)` as the `Card` u8 layout defined in
+/// `solver_eval::card::Card::new`.
 #[inline]
 fn card_u8(rank: u8, suit: u8) -> u8 {
     (rank << 2) | (suit & 0b11)
-}
-
-/// Lexicographic index of the unordered pair `{a, b}` in 0..1326.
-///
-/// Formula for `a < b`, both in 0..52:
-///   `a * (2*52 - a - 1) / 2 + (b - a - 1)`
-///
-/// Which is equivalent to "sum of row widths above row `a` in a strictly
-/// upper-triangular enumeration of the 52×52 grid, plus column offset."
-#[inline]
-fn combo_index(a: u8, b: u8) -> usize {
-    let (lo, hi) = if a < b { (a, b) } else { (b, a) };
-    let lo = lo as usize;
-    let hi = hi as usize;
-    // n = 52
-    lo * (2 * 52 - lo - 1) / 2 + (hi - lo - 1)
 }
 
 // ---------------------------------------------------------------------------
@@ -378,15 +356,17 @@ mod tests {
     #[test]
     fn combo_index_is_lexicographic_and_covers_1326() {
         // Exhaustive: every unordered pair 0..52 hits a unique index in 0..1326.
-        let mut seen = [false; 1326];
+        // (solver_eval::combo already tests this directly; we re-check here
+        // to guard against an incompatible ordering change sneaking in.)
+        let mut seen = [false; NUM_COMBOS];
         for a in 0u8..52 {
             for b in (a + 1)..52 {
-                let idx = combo_index(a, b);
-                assert!(idx < 1326, "idx {idx} out of range for ({a},{b})");
+                let idx = combo_index(Card(a), Card(b));
+                assert!(idx < NUM_COMBOS, "idx {idx} out of range for ({a},{b})");
                 assert!(!seen[idx], "duplicate index {idx} at ({a},{b})");
                 seen[idx] = true;
                 // Order-independence.
-                assert_eq!(combo_index(a, b), combo_index(b, a));
+                assert_eq!(combo_index(Card(a), Card(b)), combo_index(Card(b), Card(a)));
             }
         }
         assert!(seen.iter().all(|&x| x));
