@@ -13,6 +13,8 @@ pub mod preflop;
 pub mod range;
 pub mod subgame;
 pub mod subgame_vector;
+#[cfg(target_arch = "aarch64")]
+pub mod subgame_vector_neon;
 
 pub use action::{Action, ActionLog, Street};
 pub use bet_tree::BetTree;
