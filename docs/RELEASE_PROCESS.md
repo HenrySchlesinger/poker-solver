@@ -327,6 +327,119 @@ x86_64 slice. No stale `CARGO_BUILD_TARGET` in the shell, no
 - `scripts/gh-release.sh` — not exercised here (dry run, no tag
   pushed). Status unchanged from A28/A39.
 
+### Dress-rehearsal results (v0.1.0-test2, 2026-04-23, A60)
+
+Full end-to-end verification now that A59 has wired `solver_solve`
+through to `CfrPlus` + `NlheSubgame`. Unlike A52's v0.1.0-dryrun
+rehearsal — which only linked against the xcframework and called
+`solver_version()` — this run exercises the real solve path: build a
+canonical `HandState` in Swift, invoke `solver_solve`, and assert the
+`SolveResult` passes the royal-tie invariant (`hero_equity ~ 0.5` on
+`AhKhQhJhTh` with AKs ranges).
+
+**Artifact sizes (verified):**
+
+| Asset | Exact bytes | Human |
+| --- | --- | --- |
+| `lib/libsolver_ffi.a` (universal) | 37,832,776 | ~36.1 MiB |
+| `lib/libsolver_ffi.dylib` (universal) | 972,896 | ~950 KiB |
+| `solver-v0.1.0-test2-macos-universal.tar.gz` | 14,259,200 | ~14 MiB |
+| `PokerSolver-v0.1.0-test2.xcframework.zip` | 13,836,545 | ~14 MiB |
+
+`libsolver_ffi.a` grew from 30.2 MiB (A52, dry-run) to 36.1 MiB once
+the real solver guts were linked in behind A59's FFI wiring. The
+dylib shrank from 33 KiB to ~950 KiB (A52's was a stub; A59's exposes
+the wired path). Both archives land in the same ~14 MiB zip/tarball
+range.
+
+**SHA-256 (verified):**
+
+| Asset | SHA-256 |
+| --- | --- |
+| `solver-v0.1.0-test2-macos-universal.tar.gz` | `45ee59e83022bb27c933e6eb680040160d6e4c6daeb4920c7cdc06fbee43a007` |
+| `PokerSolver-v0.1.0-test2.xcframework.zip` | `8ae476e233f3057348f4abc492a13e2aebd950555e60ee8b63d2b342b47cb932` |
+| `lib/libsolver_ffi.a` (in-bundle) | `c1efbb5dec089f412d5e3b174f134bd4b1dd020b2b00432c1b9d851360f47635` |
+| `lib/libsolver_ffi.dylib` (in-bundle) | `d219f8003c9d38f16a2cf7401c242a9a90b8ad39ea6916ca6f1671051465c6d0` |
+| `include/solver.h` (in-bundle) | `efffdbda9accbdacf8e87bbb139c1037d204205e73c8ebfb7d7bdc514c11ee34` |
+
+`swift package compute-checksum` returned exactly the file sha256 for
+the xcframework zip (`8ae476e233f3057348f4abc492a13e2aebd950555e60ee8b63d2b342b47cb932`)
+— same invariant as A52 observed.
+
+**Structural validation:**
+
+- `lipo -info` on both the static and dynamic libraries reports
+  `x86_64 arm64` — universal binary confirmed.
+- `PokerSolver.xcframework/Info.plist` references the
+  `macos-arm64_x86_64` slice.
+- xcframework tree:
+  - `Info.plist`
+  - `macos-arm64_x86_64/libsolver_ffi.a`
+  - `macos-arm64_x86_64/Headers/module.modulemap`
+  - `macos-arm64_x86_64/Headers/solver.h`
+
+**Live consumer — actually calls `solver_solve`:**
+
+Created a scratch SwiftPM executable at `/tmp/poker-solver-live-consumer/`
+with:
+
+- `Package.swift` pinning `.macOS(.v13)` and a
+  `.binaryTarget(name: "PokerSolverBinary", path: "PokerSolver.xcframework")`.
+- `Sources/LiveConsumer/main.swift` that mirrors
+  `crates/solver-ffi/examples/swift-harness/main_e2e.swift`: builds the
+  canonical royal-tie spot (`AhKhQhJhTh` board, AKs ranges for both
+  players, `pot=100`, `stack=500`, `to_act=0`), invokes
+  `solver_new` / `solver_solve` / `solver_free`, and asserts the
+  returned `SolveResult` matches expectations.
+
+`swift build` completed cleanly in 2.13s. Link-time warnings about
+"object file was built for newer 'macOS' version (26.2) than being
+linked (13.0)" came from zstd-sys objects and are benign — the host is
+on macOS 26.x; the consumer pins `.v13` deployment target; symbols
+resolve.
+
+Running `.build/debug/LiveConsumer` produced:
+
+```
+solver_version=0.1.0-dev
+rc=0
+hero_equity=0.5
+exploitability=52.0
+iterations=100
+compute_ms=20
+action_count=6
+OK: live consumer solved the royal-tie spot through the xcframework
+```
+
+The key numbers:
+
+- `rc=0` — `solver_solve` returned `SolverStatus::Ok`, not the A52-era
+  stub `InternalError (-2)`.
+- `hero_equity=0.5` — both players play the board for an exact tie
+  (the solve path reached the showdown evaluator and got the right
+  answer).
+- `iterations=100` — matches `DEFAULT_ITERATIONS` as documented in
+  `solver.h`.
+- `action_count=6` — the river bet tree expanded to 6 actions, well
+  inside the `action_freq[8]` bound.
+- `compute_ms=20` — live solve on an arm64 Mac, a single handle.
+
+**What's different vs A52's v0.1.0-dryrun run:**
+
+A52 built the same xcframework shape but the FFI `solver_solve` entry
+point was still the Day-2 stub (`InternalError (-2)` unconditionally),
+so A52's consumer could only prove symbol resolution via
+`solver_version()`. A60's run is the first time the **whole** pipeline
+— cargo build → lipo → xcframework → SwiftPM consumer → `solver_solve`
+— has been exercised end-to-end with a populated `SolveResult`.
+
+**Script status:**
+
+- `scripts/build-release.sh` — ran clean, no edits.
+- `scripts/build-xcframework.sh` — ran clean, no edits.
+- `scripts/gh-release.sh` — not exercised (dress rehearsal, no tag
+  pushed to origin).
+
 ### 7. Notify consumers
 
 For v0.1, "consumers" = **Henry**, integrating into
