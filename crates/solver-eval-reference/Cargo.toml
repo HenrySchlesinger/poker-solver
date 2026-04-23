@@ -1,0 +1,35 @@
+[package]
+name = "solver-eval-reference"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Reference poker-math oracle ported from Poker Panel. Test-only; not for production."
+
+# This crate exists exclusively as a test oracle. Clarity over speed.
+# If you are looking at it from a "hot path" perspective, you are in the
+# wrong crate — see `solver-eval` instead.
+#
+# Independence note: we DELIBERATELY do not depend on `rs_poker` here,
+# even though `solver-eval` does. The whole point of a differential
+# oracle is to catch bugs in the production implementation — if both
+# sides wrapped the same upstream evaluator we'd bless rs_poker's
+# bugs on both sides and never detect them. The reference evaluator
+# in `eval.rs` is implemented from scratch using the classic
+# "best-of-C(7,5)=21" decomposition and a categorical 5-card
+# evaluator. Pure Rust, no third-party hand-eval dep.
+
+[dependencies]
+# Deterministic PRNG for Monte Carlo equity runouts. Matches
+# solver-eval's choice so differential tests can pin the same seed
+# and reproduce results.
+rand = { workspace = true }
+rand_xoshiro = { workspace = true }
+
+# Internal: we reuse Card / Hand / Board / HandRank from solver-eval so
+# our reference_* functions take the same types as the production ones.
+# This dep only matters at test time — `crates/solver-eval/tests/
+# differential.rs` pulls both crates and confirms they agree.
+solver-eval = { workspace = true }

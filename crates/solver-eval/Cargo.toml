@@ -24,3 +24,12 @@ rs_poker = { version = "4.1", default-features = false }
 # determinism when we sample runouts inside the solver.
 rand = { workspace = true }
 rand_xoshiro = { workspace = true }
+
+[dev-dependencies]
+# Used exclusively by tests/differential.rs (agent A8, Day 1). The
+# reference oracle is a from-scratch hand evaluator ported from Poker
+# Panel's Python backend, used to cross-check `eval::eval_7` on random
+# inputs. Not linked into any production build.
+solver-eval-reference = { workspace = true }
+# Property-based testing: used by tests/proptest_primitives.rs (A24).
+proptest = { workspace = true }
