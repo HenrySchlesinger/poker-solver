@@ -1,0 +1,34 @@
+{
+  "input": {
+    "bet_tree": "default",
+    "board": "9h8h7c6d5s",
+    "hero_range": "TT, JJ, QQ, KK, AA, AQs, AKs, KQs, AJs, ATs, QJs, QTs, JTs, AJo, AQo, AKo, KQo, KJo, KTo, QJo, QTo, JTo",
+    "iterations": 1000,
+    "pot": 100,
+    "stack": 950,
+    "villain_range": "TT, JJ, QQ, KK, AA, AQs, AKs, KQs, AJs, ATs, QJs, QTs, JTs, AJo, AQo, AKo, KQo, KJo, KTo, QJo, QTo, JTo"
+  },
+  "result": {
+    "action_frequencies": {
+      "allin": 0.041751228272914886,
+      "bet_100": 0.018113240599632263,
+      "bet_200": 0.016076132655143738,
+      "bet_33": 0.035368796437978745,
+      "bet_66": 0.22935789823532104,
+      "check": 0.6593326926231384
+    },
+    "compute_ms": 208100,
+    "ev_per_action": {
+      "allin": -195.19952392578125,
+      "bet_100": -7.288153171539307,
+      "bet_200": -32.15281295776367,
+      "bet_33": 1.7928143739700317,
+      "bet_66": 0.9728667736053467,
+      "check": -0.5677698254585266
+    },
+    "exploitability": 52.0,
+    "hero_equity": 0.5,
+    "iterations": 1000
+  },
+  "solver_version": "0.1.0-wip"
+}
