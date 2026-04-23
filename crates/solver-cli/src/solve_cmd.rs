@@ -4,39 +4,45 @@
 //!
 //! ```text
 //! solver-cli solve \
-//!     --board AhKh2s \
-//!     --hero-range "AA,KK,AKs" \
-//!     --villain-range "22+,AJs+,KQs" \
-//!     --pot 100 --stack 1000 --iterations 1000
+//!     --board AhKhQhJhTh \
+//!     --hero-range "AsKs" \
+//!     --villain-range "AsKs" \
+//!     --pot 100 --stack 500 --iterations 100
 //! ```
 //!
-//! ## Not-yet-implemented upstream
+//! ## Architecture
 //!
-//! As of Day 2 of the sprint, `solver-nlhe::NlheSubgame` and
-//! `solver-nlhe::BetTree::default_v0_1` are in varying states of
-//! completeness. This subcommand is written so that:
+//! The flow is:
 //!
-//! 1. Argument parsing + string parsing (board, range, bet-tree name) work
-//!    independently — errors there surface immediately, without depending
-//!    on downstream solver plumbing. The `solver-cli solve --help` output
-//!    works. The unit tests for parsing work.
-//! 2. When the solver code calls into an unimplemented stub, we catch the
-//!    panic at the FFI-to-upstream boundary and emit a useful error
-//!    ("solver-nlhe::NlheSubgame is not yet implemented — run this after
-//!    Day 2 main path lands") instead of letting `todo!()` bubble out as a
-//!    raw panic. Exit status is non-zero.
+//! 1. **Parse** raw strings into domain types (`Board`, `Range`,
+//!    `BetTree`). Typos surface here with a clean error, independently
+//!    of the solver.
+//! 2. **Build** the NLHE river subgame via `NlheSubgame::new`. v0.1 is
+//!    river-only; non-river boards bail with a clear error.
+//! 3. **Enumerate** the chance-layer root mixture via
+//!    `NlheSubgame::chance_roots` — one entry per non-conflicting
+//!    `(hero_combo, villain_combo)` pair, weighted by the normalized
+//!    product of range weights.
+//! 4. **Solve** via `CfrPlus::run_from(roots, iterations)`.
+//! 5. **Aggregate** the root strategy + per-action EV across combo
+//!    pairs. Compute range-vs-range equity separately via
+//!    `solver_eval::equity::range_vs_range_equity`.
+//! 6. **Emit** JSON to `out`.
 //!
-//! When the upstream work lands, the `build_subgame` function below is
-//! the single place that needs editing.
+//! A `panic::catch_unwind` still wraps the solve call so a stray
+//! `todo!()` or assertion failure in an upstream crate becomes a clean
+//! non-zero exit rather than an ugly process abort.
 
 use std::io::Write;
 use std::panic::{self, AssertUnwindSafe};
 use std::time::Instant;
 
-use anyhow::{Context, Result, anyhow};
-use serde_json::{Value, json};
-use solver_core::CfrPlus;
+use anyhow::{anyhow, Context, Result};
+use serde_json::{json, Value};
+use solver_core::{CfrPlus, Game, Player, Strategy};
 use solver_eval::Board;
+use solver_nlhe::action::Action;
+use solver_nlhe::subgame::SubgameState;
 use solver_nlhe::{BetTree, NlheSubgame, Range};
 
 /// The solver version string emitted in JSON output. Keep in sync with
@@ -68,11 +74,6 @@ pub struct SolveArgs {
 
 /// Parsed/validated inputs after the string-parsing stage. Owned so the
 /// solve loop can consume them.
-///
-/// Most fields will read as "dead" until `build_subgame` is wired up to
-/// the real `NlheSubgame::new`; we allow dead_code here rather than in
-/// the file so it's obvious at the definition site.
-#[allow(dead_code)]
 pub struct ParsedInputs {
     pub board: Board,
     pub hero: Range,
@@ -88,8 +89,8 @@ pub struct ParsedInputs {
 /// Errors surface here rather than from the solver, so a typo in a range
 /// or board string is caught before we even try to build a subgame.
 pub fn parse_inputs(args: &SolveArgs) -> Result<ParsedInputs> {
-    let board =
-        Board::parse(&args.board_raw).ok_or_else(|| anyhow!("invalid board: {:?}", args.board_raw))?;
+    let board = Board::parse(&args.board_raw)
+        .ok_or_else(|| anyhow!("invalid board: {:?}", args.board_raw))?;
 
     let hero = Range::parse(&args.hero_range_raw)
         .with_context(|| format!("invalid hero range: {:?}", args.hero_range_raw))?;
@@ -99,10 +100,7 @@ pub fn parse_inputs(args: &SolveArgs) -> Result<ParsedInputs> {
 
     let bet_tree = match args.bet_tree.as_str() {
         "default" => BetTree::default_v0_1(),
-        other => anyhow::bail!(
-            "unknown bet-tree profile: {:?} (known: \"default\")",
-            other
-        ),
+        other => anyhow::bail!("unknown bet-tree profile: {:?} (known: \"default\")", other),
     };
 
     if args.iterations == 0 {
@@ -130,9 +128,8 @@ pub fn parse_inputs(args: &SolveArgs) -> Result<ParsedInputs> {
 /// stdout) and returns `Ok(())` iff the solve completed and the JSON was
 /// flushed.
 ///
-/// If an upstream stub (`NlheSubgame`, bet-tree construction, CFR tree
-/// walk) is unimplemented, returns an error with a message pointing at the
-/// specific unfinished piece. The caller (`main`) converts that into a
+/// If something fails upstream, returns an error with a message pointing
+/// at the specific failure. The caller (`main`) converts that into a
 /// non-zero exit status.
 pub fn run_solve(args: &SolveArgs, mut out: impl Write) -> Result<()> {
     let parsed = parse_inputs(args)?;
@@ -167,8 +164,8 @@ pub fn run_solve(args: &SolveArgs, mut out: impl Write) -> Result<()> {
 /// returns the `result` JSON object (without the `input`/`solver_version`
 /// wrapper).
 ///
-/// Catches any panic from unimplemented upstream (`todo!()`) and converts
-/// it to a structured error message rather than letting the process abort.
+/// Catches any panic from an upstream crate and converts it to a
+/// structured error rather than letting the process abort.
 fn solve_to_json(parsed: &ParsedInputs) -> Result<Value> {
     let start = Instant::now();
 
@@ -181,11 +178,7 @@ fn solve_to_json(parsed: &ParsedInputs) -> Result<Value> {
         Ok(Err(e)) => Err(e),
         Err(panic_payload) => {
             let msg = panic_message(&panic_payload);
-            Err(anyhow!(
-                "solver not yet fully implemented (panicked at: {msg}) — \
-                 run this after Day 2 main path lands (NlheSubgame, \
-                 BetTree::default_v0_1, CFR tree walk)."
-            ))
+            Err(anyhow!("solver panicked: {msg}"))
         }
     }
 }
@@ -199,76 +192,222 @@ struct SolveSummary {
     exploitability: f32,
 }
 
-/// The actual solve. This is the single place that needs touching when
-/// `solver-nlhe::NlheSubgame` and friends land — everything above is
-/// plumbing that's already correct.
+/// The actual solve. Builds the NLHE river subgame, enumerates the
+/// chance-layer root mixture (one entry per non-conflicting combo pair,
+/// weighted by the product of range weights), runs CFR+ over it, and
+/// summarizes the root strategy + per-action EV + range-vs-range equity.
 ///
-/// As of 2026-04-23 (Day 2 early), this returns a "blocked upstream"
-/// error before ever invoking a `todo!()`. That's intentional: the
-/// `panic::catch_unwind` wrapper above would also work, but emitting the
-/// error from here gives a more precise message for the common case
-/// (nothing has landed yet) and keeps the tree-walk call out of scope
-/// until the real subgame constructor exists.
+/// v0.1 hard-codes `first_to_act = Hero`. When `--to-act` surfaces as a
+/// CLI flag, replace the hard-coded value here.
 fn run_cfr(parsed: &ParsedInputs) -> Result<SolveSummary> {
+    // v0.1 restriction: river only. Guard here (not in `parse_inputs`)
+    // so parse-stage tests that accept 3/4/5-card boards keep passing.
+    if parsed.board.len != 5 {
+        anyhow::bail!(
+            "v0.1 supports river-only subgames (need 5 board cards, got {})",
+            parsed.board.len
+        );
+    }
+
     let subgame = build_subgame(parsed)?;
 
-    // Upstream CFR walk. When NlheSubgame::initial_state/legal_actions/etc
-    // are still `todo!()`, this will panic; `solve_to_json` catches it.
+    // Enumerate the chance-layer root mixture.
+    let roots = subgame.chance_roots();
+    if roots.is_empty() {
+        anyhow::bail!(
+            "no valid (hero, villain) combo pairs — ranges conflict with the board \
+             or with each other, so CFR has nothing to solve"
+        );
+    }
+
+    // Range-vs-range equity. Computed against the parsed ranges (the
+    // subgame holds identical copies internally). `samples` is ignored
+    // on a 5-card board (exact enumeration).
+    let hero_equity = solver_eval::equity::range_vs_range_equity(
+        &parsed.hero.weights,
+        &parsed.villain.weights,
+        &parsed.board,
+        1,
+    );
+
+    // Run CFR+ from the weighted root set.
     let mut solver = CfrPlus::new(subgame);
-    solver.run(parsed.iterations);
+    solver.run_from(&roots, parsed.iterations);
 
-    // Extract a summary. At the current state of upstream, there's no
-    // canonical root-action enumeration plumbed through the CLI yet — the
-    // subgame's root info set identifies the root decision, but the CLI
-    // doesn't yet know which actions correspond to human-readable labels
-    // like "check" / "bet_33". When `NlheSubgame` exposes a
-    // `root_action_labels()` helper (see ROADMAP Day 2), wire it up here.
-    let summary = summarize_root_strategy(&solver)?;
-    Ok(summary)
-}
-
-/// Build the NLHE subgame from parsed inputs.
-///
-/// Today this is a guard that returns a blocked-upstream error because
-/// `NlheSubgame` has no public constructor. When the A-main agent lands
-/// `NlheSubgame::new(board, hero, villain, pot, stack, bet_tree)` (or
-/// whatever final signature they settle on), delete the guard and replace
-/// with the real call.
-#[allow(clippy::unnecessary_wraps, dead_code)]
-fn build_subgame(_parsed: &ParsedInputs) -> Result<NlheSubgame> {
-    // PLACEHOLDER — remove when upstream lands.
-    //
-    // Expected shape (from ROADMAP Day 2):
-    //     Ok(NlheSubgame::new(
-    //         _parsed.board,
-    //         _parsed.hero.clone(),
-    //         _parsed.villain.clone(),
-    //         _parsed.pot,
-    //         _parsed.stack,
-    //         _parsed.bet_tree.clone(),
-    //     ))
-    anyhow::bail!(
-        "solver-nlhe::NlheSubgame is not yet implemented — run this after \
-         Day 2 main path lands (A-main agent owns NlheSubgame::new)"
-    )
-}
-
-/// Summarize the solver's root-node strategy into a JSON-ready shape.
-///
-/// When `NlheSubgame` exposes its root info set and a label map for root
-/// actions, this walks the average strategy at the root and maps each
-/// action index to a human-readable name. Today it just reports
-/// exploitability and iteration count; the per-action frequencies will
-/// come online when the upstream plumbing lands and we can identify
-/// the root.
-fn summarize_root_strategy(solver: &CfrPlus<NlheSubgame>) -> Result<SolveSummary> {
+    // Aggregate the root strategy + per-action EV across combo pairs.
     let exploitability = solver.exploitability();
+    let avg_strategy = solver.average_strategy();
+    let (action_frequencies, ev_per_action) =
+        aggregate_root_strategy_and_ev(solver.game(), &avg_strategy, &roots);
+
     Ok(SolveSummary {
-        action_frequencies: Vec::new(),
-        ev_per_action: Vec::new(),
-        hero_equity: 0.0,
+        action_frequencies,
+        ev_per_action,
+        hero_equity,
         exploitability,
     })
+}
+
+/// Build the NLHE river subgame from parsed inputs.
+///
+/// v0.1 hard-codes `first_to_act = Hero`. When the CLI exposes a
+/// `--to-act` flag, thread it through `SolveArgs` and into here.
+fn build_subgame(parsed: &ParsedInputs) -> Result<NlheSubgame> {
+    Ok(NlheSubgame::new(
+        parsed.board,
+        parsed.hero.clone(),
+        parsed.villain.clone(),
+        parsed.pot,
+        parsed.stack,
+        Player::Hero,
+        parsed.bet_tree.clone(),
+    ))
+}
+
+/// Aggregate the per-combo-pair root strategy into a single
+/// action-frequency vector, and compute EV per action.
+///
+/// Under the pair-enumeration (chance-layer) formulation there is one
+/// "root info set" per first-to-act combo. We walk each root in
+/// `roots`, fetch first-to-act's info-set strategy, weight it by the
+/// chance-layer prior for that root, and sum.
+///
+/// EV per action is computed by one-ply lookahead: for each action at
+/// the root, walk the subtree under `avg_strategy` (both players
+/// following the average) and compute the expected utility for
+/// first-to-act, then weight-sum across combo pairs.
+fn aggregate_root_strategy_and_ev(
+    game: &NlheSubgame,
+    avg_strategy: &Strategy,
+    roots: &[(SubgameState, f32)],
+) -> (Vec<(String, f32)>, Vec<(String, f32)>) {
+    // Establish the action set + labels from a representative root. All
+    // roots share the same legal-actions list (root state: empty action
+    // log, stacks + pot untouched — deterministic from subgame config).
+    let Some((first_root, _)) = roots.first() else {
+        return (Vec::new(), Vec::new());
+    };
+    let root_actions = game.legal_actions(first_root);
+    let num_actions = root_actions.len();
+    let labels: Vec<String> = root_actions.iter().map(action_label).collect();
+
+    // Who acts at the root? All roots share this — `current_player` is
+    // a function of the action history, which is empty at every root.
+    let first_to_act = game.current_player(first_root);
+
+    // Weighted accumulators across combo pairs.
+    let mut freq_acc = vec![0.0_f64; num_actions];
+    let mut ev_acc = vec![0.0_f64; num_actions];
+    let mut total_weight = 0.0_f64;
+
+    for (root_state, weight) in roots {
+        let w = *weight as f64;
+        if w == 0.0 {
+            continue;
+        }
+
+        // Fetch first_to_act's strategy at this root (keyed on their
+        // combo + empty action history). Fall back to uniform if the
+        // info set was never reached (shouldn't happen for a live root,
+        // but matches Strategy::get's None handling).
+        let info = game.info_set(root_state, first_to_act);
+        let uniform_fallback: Vec<f32>;
+        let strat: &[f32] = match avg_strategy.get(info) {
+            Some(s) => s,
+            None => {
+                uniform_fallback = vec![1.0 / num_actions as f32; num_actions];
+                &uniform_fallback
+            }
+        };
+        debug_assert_eq!(strat.len(), num_actions);
+
+        // Walk each action once to get subtree EV for first_to_act.
+        for (i, action) in root_actions.iter().enumerate() {
+            let next = game.apply(root_state, action);
+            let child_ev =
+                subtree_ev_under_avg_strategy(game, &next, avg_strategy, first_to_act);
+            ev_acc[i] += w * child_ev as f64;
+            freq_acc[i] += w * strat[i] as f64;
+        }
+        total_weight += w;
+    }
+
+    // Normalize frequencies + EVs (defensive: roots are already normalized
+    // to sum to 1 by `chance_roots`, so `total_weight` should be ~1.0).
+    if total_weight > 0.0 {
+        for f in &mut freq_acc {
+            *f /= total_weight;
+        }
+        for ev in &mut ev_acc {
+            *ev /= total_weight;
+        }
+    }
+
+    let frequencies: Vec<(String, f32)> = labels
+        .iter()
+        .zip(freq_acc.iter())
+        .map(|(lbl, f)| (lbl.clone(), *f as f32))
+        .collect();
+    let evs: Vec<(String, f32)> = labels
+        .iter()
+        .zip(ev_acc.iter())
+        .map(|(lbl, ev)| (lbl.clone(), *ev as f32))
+        .collect();
+
+    (frequencies, evs)
+}
+
+/// Expected utility for `player` at `state`, walking the subtree under
+/// `avg_strategy` (both players follow the averaged strategy, with a
+/// uniform fallback for info sets the averaging never touched).
+fn subtree_ev_under_avg_strategy(
+    game: &NlheSubgame,
+    state: &SubgameState,
+    avg_strategy: &Strategy,
+    player: Player,
+) -> f32 {
+    if game.is_terminal(state) {
+        return game.utility(state, player);
+    }
+    let current = game.current_player(state);
+    let actions = game.legal_actions(state);
+    let n = actions.len();
+    debug_assert!(n > 0, "non-terminal with no legal actions");
+
+    let info = game.info_set(state, current);
+    let uniform_fallback: Vec<f32>;
+    let strat: &[f32] = match avg_strategy.get(info) {
+        Some(s) => s,
+        None => {
+            uniform_fallback = vec![1.0 / n as f32; n];
+            &uniform_fallback
+        }
+    };
+
+    let mut val = 0.0_f32;
+    for (i, action) in actions.iter().enumerate() {
+        let p = strat[i];
+        if p == 0.0 {
+            continue;
+        }
+        let next = game.apply(state, action);
+        val += p * subtree_ev_under_avg_strategy(game, &next, avg_strategy, player);
+    }
+    val
+}
+
+/// Human-readable label for a root action. Names are stable and suitable
+/// as JSON object keys: `check`, `call`, `fold`, `bet_<chips>`,
+/// `raise_<chips>`, `allin`.
+fn action_label(a: &Action) -> String {
+    match a {
+        Action::Fold => "fold".to_string(),
+        Action::Check => "check".to_string(),
+        Action::Call => "call".to_string(),
+        Action::Bet(amt) => format!("bet_{amt}"),
+        Action::Raise(amt) => format!("raise_{amt}"),
+        Action::AllIn => "allin".to_string(),
+    }
 }
 
 /// Package a solve summary into the JSON `result` block defined in the
@@ -357,10 +496,7 @@ mod tests {
     fn parse_inputs_rejects_bad_board() {
         let a = args_for("XxXxXx", "AA", "KK");
         let err = expect_err(parse_inputs(&a), "bad board");
-        assert!(
-            err.to_string().contains("invalid board"),
-            "got: {err}",
-        );
+        assert!(err.to_string().contains("invalid board"), "got: {err}",);
     }
 
     #[test]
@@ -432,19 +568,55 @@ mod tests {
     }
 
     #[test]
-    fn run_solve_returns_useful_error_when_upstream_missing() {
-        // Day 2-early state: NlheSubgame has no constructor. `run_solve`
-        // must surface a readable error, not a raw todo! panic.
+    fn run_solve_rejects_non_river_board_with_readable_error() {
+        // v0.1 handles river-only subgames. A flop board must bail
+        // with a readable error, not a raw panic from `NlheSubgame::new`.
         let a = args_for("AhKh2s", "AA,KK,AKs", "22+,AJs+,KQs");
         let mut out = Vec::new();
         let err = run_solve(&a, &mut out).unwrap_err();
-        let msg = err.to_string();
+        let msg = err.to_string().to_lowercase();
         assert!(
-            msg.contains("NlheSubgame") || msg.contains("not yet"),
-            "expected blocked-upstream message, got: {msg}"
+            msg.contains("river") || msg.contains("5 board"),
+            "expected river-only restriction message, got: {msg}"
         );
         // No JSON should have been emitted — we bailed before writing.
         assert!(out.is_empty());
+    }
+
+    #[test]
+    fn run_solve_produces_json_on_river_spot() {
+        // Full end-to-end on a river spot. Use tiny iteration count so
+        // the unit test finishes in milliseconds.
+        let a = SolveArgs {
+            board_raw: "AhKhQhJhTh".to_string(),
+            hero_range_raw: "AsKs".to_string(),
+            villain_range_raw: "AsKs".to_string(),
+            pot: 100,
+            stack: 500,
+            iterations: 10,
+            bet_tree: "default".to_string(),
+        };
+        let mut out = Vec::new();
+        run_solve(&a, &mut out).expect("solve must succeed on a river spot");
+        let s = String::from_utf8(out).expect("solve output must be UTF-8");
+        let v: Value = serde_json::from_str(&s).expect("solve output must parse as JSON");
+        assert!(v.get("input").is_some(), "missing input: {v}");
+        assert!(v.get("result").is_some(), "missing result: {v}");
+        assert!(
+            v.get("solver_version").is_some(),
+            "missing solver_version: {v}"
+        );
+        let result = v.get("result").unwrap();
+        for k in [
+            "action_frequencies",
+            "ev_per_action",
+            "hero_equity",
+            "exploitability",
+            "iterations",
+            "compute_ms",
+        ] {
+            assert!(result.get(k).is_some(), "result missing {k}: {result}");
+        }
     }
 
     #[test]

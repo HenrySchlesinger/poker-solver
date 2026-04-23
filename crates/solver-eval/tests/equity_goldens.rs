@@ -19,7 +19,7 @@
 
 use solver_eval::board::Board;
 use solver_eval::card::{Card, Rank, Suit};
-use solver_eval::combo::{NUM_COMBOS, combo_index};
+use solver_eval::combo::{combo_index, NUM_COMBOS};
 use solver_eval::equity::{hand_vs_hand_equity, range_vs_range_equity};
 use solver_eval::hand::Hand;
 

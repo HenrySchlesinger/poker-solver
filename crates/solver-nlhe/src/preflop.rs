@@ -71,9 +71,30 @@ const ENTRY_BYTES: usize = 4 + 4 * NUM_COMBOS;
 /// File header size in bytes.
 const HEADER_BYTES: usize = 16;
 
-/// Magic bytes at the start of a preflop range file. Readable as "PSPRE"
-/// plus three zero pad bytes, keeps the header 8-byte aligned.
+/// Magic bytes at the start of an **uncompressed** preflop range file.
+/// Readable as "PSPRE" plus three zero pad bytes, keeps the header
+/// 8-byte aligned.
 const MAGIC: [u8; 8] = *b"PSPRE\0\0\0";
+
+/// Magic bytes at the start of a **zstd-compressed** preflop range file.
+/// Readable as "PSPREZST" — same 8-byte alignment as [`MAGIC`], still
+/// begins with "PSPRE" so `file` / grep still identifies it as one of
+/// ours. The 16-byte header (version + num_entries) stays uncompressed
+/// so a reader can validate and preallocate before decompressing. The
+/// entries section is a single zstd frame.
+///
+/// Added by agent A33 (2026-04-22). The magic change is backward
+/// compatible: [`PreflopRanges::load_from_file`] dispatches on the first
+/// 8 bytes and falls through to the uncompressed reader for files that
+/// predate this format.
+const MAGIC_ZSTD: [u8; 8] = *b"PSPREZST";
+
+/// Compression level passed to [`zstd::stream::encode_all`] when writing
+/// compressed preflop files. Level 19 gives near-maximum ratio at
+/// reasonable encode speed (a few seconds on a 100 MB input); decode is
+/// level-independent. Drop to 11 if encode time becomes painful on
+/// Colab — ratio only loses ~5% but encode speeds up ~10x.
+const ZSTD_LEVEL: i32 = 19;
 
 /// Current on-disk format version. Bump when the layout changes.
 const FORMAT_VERSION: u16 = 1;
@@ -178,6 +199,14 @@ impl PreflopRanges {
     /// Deserialize from an in-memory byte slice. Factored out so tests can
     /// hit the parser with hand-built (or deliberately-mangled) inputs
     /// without touching the filesystem.
+    ///
+    /// Dispatches on magic bytes:
+    ///   * [`MAGIC`]      → uncompressed body (original v0.1 layout).
+    ///   * [`MAGIC_ZSTD`] → zstd-compressed body (added by A33).
+    ///
+    /// In either case the 16-byte file header (magic + version + reserved
+    /// + num_entries) is validated first, so a truncated or wrong-version
+    /// file is rejected before we spend a decompression.
     fn load_from_bytes(bytes: &[u8]) -> Result<Self> {
         if bytes.len() < HEADER_BYTES {
             return Err(anyhow!(
@@ -188,9 +217,13 @@ impl PreflopRanges {
         }
 
         let magic = &bytes[0..8];
-        if magic != MAGIC {
+        let is_compressed = if magic == MAGIC {
+            false
+        } else if magic == MAGIC_ZSTD {
+            true
+        } else {
             return Err(anyhow!("bad magic bytes: {:?}", magic));
-        }
+        };
 
         let version = u16::from_le_bytes([bytes[8], bytes[9]]);
         if version != FORMAT_VERSION {
@@ -202,27 +235,52 @@ impl PreflopRanges {
         // bytes[10..12] reserved; ignored on load (must be written as 0).
         let num_entries = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]) as usize;
 
-        let expected_len = HEADER_BYTES + num_entries * ENTRY_BYTES;
-        if bytes.len() != expected_len {
-            return Err(anyhow!(
-                "file size mismatch: num_entries={num_entries} implies {expected_len} bytes, got {}",
-                bytes.len()
-            ));
-        }
+        let expected_payload_len = num_entries * ENTRY_BYTES;
+
+        // The entry-decode loop below indexes into a "payload" slice of
+        // length `expected_payload_len`. For uncompressed files that's
+        // just `&bytes[HEADER_BYTES..]` (zero-copy). For compressed files
+        // we decompress into a fresh `Vec` and verify its length. Either
+        // way the downstream parse path is identical.
+        let owned: Vec<u8>;
+        let payload: &[u8] = if is_compressed {
+            owned = zstd::stream::decode_all(&bytes[HEADER_BYTES..])
+                .map_err(|e| anyhow!("zstd decode failed: {e}"))?;
+            if owned.len() != expected_payload_len {
+                return Err(anyhow!(
+                    "decompressed size mismatch: num_entries={num_entries} implies {expected_payload_len} bytes, got {}",
+                    owned.len()
+                ));
+            }
+            &owned[..]
+        } else {
+            let expected_len = HEADER_BYTES + expected_payload_len;
+            if bytes.len() != expected_len {
+                return Err(anyhow!(
+                    "file size mismatch: num_entries={num_entries} implies {expected_len} bytes, got {}",
+                    bytes.len()
+                ));
+            }
+            &bytes[HEADER_BYTES..]
+        };
 
         let mut entries = HashMap::with_capacity(num_entries);
         for i in 0..num_entries {
-            let off = HEADER_BYTES + i * ENTRY_BYTES;
-            let position = Position::from_u8(bytes[off])?;
-            let pot_type = PotType::from_u8(bytes[off + 1])?;
-            let stack_bb = u16::from_le_bytes([bytes[off + 2], bytes[off + 3]]);
+            let off = i * ENTRY_BYTES;
+            let position = Position::from_u8(payload[off])?;
+            let pot_type = PotType::from_u8(payload[off + 1])?;
+            let stack_bb = u16::from_le_bytes([payload[off + 2], payload[off + 3]]);
 
             let weights_off = off + 4;
             let mut weights = Box::new([0.0_f32; NUM_COMBOS]);
             for (j, slot) in weights.iter_mut().enumerate() {
                 let wo = weights_off + j * 4;
-                *slot =
-                    f32::from_le_bytes([bytes[wo], bytes[wo + 1], bytes[wo + 2], bytes[wo + 3]]);
+                *slot = f32::from_le_bytes([
+                    payload[wo],
+                    payload[wo + 1],
+                    payload[wo + 2],
+                    payload[wo + 3],
+                ]);
             }
             let range = Range { weights };
             let key = Key {
@@ -357,6 +415,81 @@ pub fn write_binary(path: &Path, entries: &[(Position, u16, PotType, &Range)]) -
     }
 
     debug_assert_eq!(buf.len(), total_bytes);
+
+    let mut file = File::create(path).with_context(|| format!("creating {}", path.display()))?;
+    file.write_all(&buf)
+        .with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
+/// Serialize to the **zstd-compressed** on-disk variant (magic
+/// [`MAGIC_ZSTD`]). Same input shape as [`write_binary`]; same per-entry
+/// byte layout inside the compressed frame. Only the entries section is
+/// compressed — the 16-byte file header stays uncompressed so the reader
+/// can validate + allocate before it decodes.
+///
+/// On the preflop data (mostly-smooth f32 weights in [0, 1], with many
+/// near-duplicate entries across position / pot-type variants), zstd
+/// level [`ZSTD_LEVEL`] typically delivers 3-5x compression — see the
+/// `cache_compression` bench for numbers on the current fixture.
+///
+/// Error classes mirror [`write_binary`] — duplicate key, too many
+/// entries, I/O — plus zstd encode errors (OOM or catastrophic system
+/// failure in practice).
+pub fn write_binary_compressed(
+    path: &Path,
+    entries: &[(Position, u16, PotType, &Range)],
+) -> Result<()> {
+    // Pre-check for dup keys so we don't produce any file on bad input.
+    // Same check as write_binary; kept inline because factoring to a
+    // helper would obscure the short-circuit pattern at the top of both
+    // writers.
+    {
+        let mut seen = HashMap::with_capacity(entries.len());
+        for (pos, stack, pot, _) in entries {
+            if seen.insert((*pos, *stack, *pot), ()).is_some() {
+                return Err(anyhow!(
+                    "duplicate entry: ({:?}, {}, {:?})",
+                    pos,
+                    stack,
+                    pot
+                ));
+            }
+        }
+    }
+
+    let num_entries: u32 = entries
+        .len()
+        .try_into()
+        .map_err(|_| anyhow!("too many entries: {}", entries.len()))?;
+
+    // Build the raw (uncompressed) payload: byte-for-byte the same as
+    // the corresponding slice in write_binary's output. Deliberately
+    // shared so once the reader consumes the header it doesn't care
+    // which writer produced the file.
+    let payload_bytes = entries.len() * ENTRY_BYTES;
+    let mut payload = Vec::with_capacity(payload_bytes);
+    for (pos, stack, pot, range) in entries {
+        payload.push(*pos as u8);
+        payload.push(*pot as u8);
+        payload.extend_from_slice(&stack.to_le_bytes());
+        for w in range.weights.iter() {
+            payload.extend_from_slice(&w.to_le_bytes());
+        }
+    }
+    debug_assert_eq!(payload.len(), payload_bytes);
+
+    // One-shot zstd frame. We don't need streaming — the uncompressed
+    // buffer fits in memory by construction (we just built it).
+    let compressed = zstd::stream::encode_all(&payload[..], ZSTD_LEVEL)
+        .map_err(|e| anyhow!("zstd encode failed: {e}"))?;
+
+    let mut buf = Vec::with_capacity(HEADER_BYTES + compressed.len());
+    buf.extend_from_slice(&MAGIC_ZSTD);
+    buf.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
+    buf.extend_from_slice(&0_u16.to_le_bytes()); // reserved
+    buf.extend_from_slice(&num_entries.to_le_bytes());
+    buf.extend_from_slice(&compressed);
 
     let mut file = File::create(path).with_context(|| format!("creating {}", path.display()))?;
     file.write_all(&buf)
@@ -502,5 +635,138 @@ mod tests {
         // write_binary short-circuits before creating the file on dup, so
         // don't fail the test if it doesn't exist.
         let _ = std::fs::remove_file(&path);
+    }
+
+    // ----- Compressed (zstd) variant — added by A33 ------------------
+
+    /// Round-trip a non-trivial fixture through `write_binary_compressed`
+    /// and verify every entry comes back identical after decompression.
+    #[test]
+    fn fixture_roundtrip_compressed() {
+        let fixture = PreflopRanges::test_fixture();
+        assert!(!fixture.is_empty());
+
+        let refs: Vec<(Position, u16, PotType, &Range)> = fixture
+            .entries
+            .iter()
+            .map(|(k, r)| (k.position, k.stack_bb, k.pot_type, r))
+            .collect();
+
+        let path = tmp_path("roundtrip-zstd");
+        write_binary_compressed(&path, &refs).unwrap();
+
+        // Sanity: the file starts with the compressed-variant magic, not
+        // the uncompressed one — guards against a writer bug that would
+        // silently emit the wrong magic but otherwise parse (since the
+        // payload decoder is shared).
+        let on_disk = std::fs::read(&path).unwrap();
+        assert_eq!(&on_disk[0..8], &MAGIC_ZSTD);
+
+        let loaded = PreflopRanges::load_from_file(&path).unwrap();
+        assert_eq!(loaded.len(), fixture.len());
+        for (k, r) in &fixture.entries {
+            let got = loaded
+                .lookup(k.position, k.stack_bb, k.pot_type)
+                .expect("entry present after compressed round-trip");
+            assert_eq!(&got.weights[..], &r.weights[..]);
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// The same reader must transparently load both variants — that's
+    /// the whole point of magic-byte dispatch. Write the same fixture
+    /// uncompressed and compressed, load both, diff by-key.
+    #[test]
+    fn reader_auto_detects_compressed_vs_uncompressed() {
+        let fixture = PreflopRanges::test_fixture();
+        let refs: Vec<(Position, u16, PotType, &Range)> = fixture
+            .entries
+            .iter()
+            .map(|(k, r)| (k.position, k.stack_bb, k.pot_type, r))
+            .collect();
+
+        let p_raw = tmp_path("raw");
+        let p_zst = tmp_path("zst");
+        write_binary(&p_raw, &refs).unwrap();
+        write_binary_compressed(&p_zst, &refs).unwrap();
+
+        // Compressed file should be strictly smaller on this fixture
+        // (several entries sharing identical init patterns). If zstd
+        // ever can't shrink our test data the assumption that this
+        // format wins on real data is suspect.
+        let size_raw = std::fs::metadata(&p_raw).unwrap().len();
+        let size_zst = std::fs::metadata(&p_zst).unwrap().len();
+        assert!(
+            size_zst < size_raw,
+            "expected compressed < raw, got {} >= {}",
+            size_zst,
+            size_raw
+        );
+
+        let loaded_raw = PreflopRanges::load_from_file(&p_raw).unwrap();
+        let loaded_zst = PreflopRanges::load_from_file(&p_zst).unwrap();
+        assert_eq!(loaded_raw.len(), loaded_zst.len());
+        for (k, r) in &fixture.entries {
+            let a = loaded_raw
+                .lookup(k.position, k.stack_bb, k.pot_type)
+                .unwrap();
+            let b = loaded_zst
+                .lookup(k.position, k.stack_bb, k.pot_type)
+                .unwrap();
+            assert_eq!(&a.weights[..], &r.weights[..]);
+            assert_eq!(&b.weights[..], &r.weights[..]);
+        }
+
+        let _ = std::fs::remove_file(&p_raw);
+        let _ = std::fs::remove_file(&p_zst);
+    }
+
+    /// Empty compressed files must round-trip just like empty
+    /// uncompressed ones — edge case caught a bug in an earlier draft
+    /// where zstd produced a non-empty frame for a zero-byte input and
+    /// the size-check mis-accounted for that.
+    #[test]
+    fn empty_compressed_roundtrips() {
+        let path = tmp_path("empty-zst");
+        write_binary_compressed(&path, &[]).unwrap();
+        let loaded = PreflopRanges::load_from_file(&path).unwrap();
+        assert!(loaded.is_empty());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Truncating the compressed body must fail gracefully (not panic).
+    /// We produce a valid file, chop the last few bytes off, and assert
+    /// the loader surfaces an error.
+    #[test]
+    fn malformed_truncated_compressed_returns_err() {
+        let r = Range::full();
+        let entries = vec![(Position::BtnVsBb, 100, PotType::Srp, &r)];
+        let path = tmp_path("trunc-zst");
+        write_binary_compressed(&path, &entries).unwrap();
+        let mut bytes = std::fs::read(&path).unwrap();
+        // Chop the last 4 bytes of the compressed frame. zstd decoder
+        // should fail; even if somehow it succeeded, the size check
+        // inside load_from_bytes would catch a short payload.
+        let cut_to = bytes.len() - 4;
+        bytes.truncate(cut_to);
+        assert!(PreflopRanges::load_from_bytes(&bytes).is_err());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Valid zstd-compressed header, but the decompressed body is
+    /// shorter than `num_entries * ENTRY_BYTES` implies. Must return
+    /// Err (and specifically the "decompressed size mismatch" error).
+    #[test]
+    fn malformed_compressed_size_mismatch_returns_err() {
+        // Compress an empty payload but claim num_entries=1 in the header.
+        // Reader will decompress to 0 bytes, see mismatch, fail.
+        let empty_frame = zstd::stream::encode_all(&[][..], ZSTD_LEVEL).unwrap();
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&MAGIC_ZSTD);
+        bytes.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
+        bytes.extend_from_slice(&0_u16.to_le_bytes());
+        bytes.extend_from_slice(&1_u32.to_le_bytes()); // lies: num_entries = 1
+        bytes.extend_from_slice(&empty_frame);
+        assert!(PreflopRanges::load_from_bytes(&bytes).is_err());
     }
 }

@@ -19,6 +19,9 @@ solver-eval = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
 serde_json = { workspace = true }
+# Colored terminal output for `solver-cli demo` (A30). Respects NO_COLOR
+# and auto-falls-back to plain text when stdout is not a TTY.
+colored = { workspace = true }
 
 [dev-dependencies]
 # `serde` + derive are used by `tests/fixtures_parse.rs` (owned by Agent A15)

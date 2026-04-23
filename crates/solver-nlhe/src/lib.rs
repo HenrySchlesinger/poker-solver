@@ -8,6 +8,7 @@
 pub mod action;
 pub mod bet_tree;
 pub mod cache;
+pub mod flop_cache;
 pub mod preflop;
 pub mod range;
 pub mod subgame;

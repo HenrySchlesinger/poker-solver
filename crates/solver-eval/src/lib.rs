@@ -6,15 +6,15 @@
 
 #![warn(missing_docs)]
 
-pub mod card;
-pub mod hand;
 pub mod board;
+pub mod card;
 pub mod combo;
-pub mod eval;
 pub mod equity;
+pub mod eval;
+pub mod hand;
 pub mod iso;
 pub mod texture;
 
+pub use board::Board;
 pub use card::{Card, Rank, Suit};
 pub use hand::Hand;
-pub use board::Board;

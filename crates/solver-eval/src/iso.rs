@@ -127,7 +127,11 @@ fn index_from_combo(a: u8, b: u8) -> u16 {
 fn relabel_pair(a: u8, b: u8, map: &SuitMap) -> (u8, u8) {
     let ra = relabel(Card(a), map).0;
     let rb = relabel(Card(b), map).0;
-    if ra < rb { (ra, rb) } else { (rb, ra) }
+    if ra < rb {
+        (ra, rb)
+    } else {
+        (rb, ra)
+    }
 }
 
 /// Full canonicalization including hero + villain hole cards. Used for
@@ -275,9 +279,9 @@ mod tests {
         // Input suits: Hearts, Spades, Diamonds (in that deal order).
         // They should map to 0, 1, 2.
         let b = flop(
-            c(Rank::Ace, Suit::Hearts),    // first new → 0
-            c(Rank::King, Suit::Spades),   // second new → 1
-            c(Rank::Two, Suit::Diamonds),  // third new → 2
+            c(Rank::Ace, Suit::Hearts),   // first new → 0
+            c(Rank::King, Suit::Spades),  // second new → 1
+            c(Rank::Two, Suit::Diamonds), // third new → 2
         );
         let out = canonical_board(&b);
         assert_eq!(out.cards[0].suit() as u8, 0);
@@ -418,14 +422,8 @@ mod tests {
             c(Rank::Ten, Suit::Hearts),
             c(Rank::Four, Suit::Clubs),
         );
-        let hero_a = combo_idx(
-            c(Rank::Ace, Suit::Spades),
-            c(Rank::King, Suit::Spades),
-        );
-        let villain_a = combo_idx(
-            c(Rank::Five, Suit::Diamonds),
-            c(Rank::Five, Suit::Hearts),
-        );
+        let hero_a = combo_idx(c(Rank::Ace, Suit::Spades), c(Rank::King, Suit::Spades));
+        let villain_a = combo_idx(c(Rank::Five, Suit::Diamonds), c(Rank::Five, Suit::Hearts));
 
         // Spot B: the same structure with suits rotated — hero AhKh on
         // board JsTs4d, villain 5c5s.
@@ -434,14 +432,8 @@ mod tests {
             c(Rank::Ten, Suit::Spades),
             c(Rank::Four, Suit::Diamonds),
         );
-        let hero_b = combo_idx(
-            c(Rank::Ace, Suit::Hearts),
-            c(Rank::King, Suit::Hearts),
-        );
-        let villain_b = combo_idx(
-            c(Rank::Five, Suit::Clubs),
-            c(Rank::Five, Suit::Spades),
-        );
+        let hero_b = combo_idx(c(Rank::Ace, Suit::Hearts), c(Rank::King, Suit::Hearts));
+        let villain_b = combo_idx(c(Rank::Five, Suit::Clubs), c(Rank::Five, Suit::Spades));
 
         let a = canonical_spot(&board_a, hero_a, villain_a);
         let b = canonical_spot(&board_b, hero_b, villain_b);
@@ -455,14 +447,8 @@ mod tests {
             c(Rank::Ten, Suit::Spades),
             c(Rank::Four, Suit::Diamonds),
         );
-        let hero = combo_idx(
-            c(Rank::Ace, Suit::Clubs),
-            c(Rank::King, Suit::Hearts),
-        );
-        let villain = combo_idx(
-            c(Rank::Five, Suit::Spades),
-            c(Rank::Two, Suit::Diamonds),
-        );
+        let hero = combo_idx(c(Rank::Ace, Suit::Clubs), c(Rank::King, Suit::Hearts));
+        let villain = combo_idx(c(Rank::Five, Suit::Spades), c(Rank::Two, Suit::Diamonds));
 
         let (b1, h1, v1) = canonical_spot(&board, hero, villain);
         let (b2, h2, v2) = canonical_spot(&b1, h1, v1);
@@ -478,14 +464,8 @@ mod tests {
             c(Rank::Seven, Suit::Diamonds),
             c(Rank::Three, Suit::Hearts),
         );
-        let hero = combo_idx(
-            c(Rank::Ace, Suit::Clubs),
-            c(Rank::Jack, Suit::Hearts),
-        );
-        let villain = combo_idx(
-            c(Rank::Eight, Suit::Diamonds),
-            c(Rank::Eight, Suit::Spades),
-        );
+        let hero = combo_idx(c(Rank::Ace, Suit::Clubs), c(Rank::Jack, Suit::Hearts));
+        let villain = combo_idx(c(Rank::Eight, Suit::Diamonds), c(Rank::Eight, Suit::Spades));
 
         let (out_board, out_hero, out_villain) = canonical_spot(&board, hero, villain);
 

@@ -304,21 +304,17 @@ fn compute_suitedness(cards: &[Card]) -> Suitedness {
 }
 
 fn top_rank_index(cards: &[Card]) -> usize {
-    cards
-        .iter()
-        .map(|c| c.rank() as usize)
-        .max()
-        .unwrap_or(0)
+    cards.iter().map(|c| c.rank() as usize).max().unwrap_or(0)
 }
 
 fn compute_rank_bucket(cards: &[Card]) -> RankBucket {
     // Rank indices: 0 = Two, 12 = Ace.
     let top = top_rank_index(cards);
     match top {
-        0..=6 => RankBucket::Low,      // 2..=8
-        7..=8 => RankBucket::Mid,      // 9, T
-        9..=11 => RankBucket::High,    // J, Q, K
-        _ => RankBucket::Ace,          // A
+        0..=6 => RankBucket::Low,   // 2..=8
+        7..=8 => RankBucket::Mid,   // 9, T
+        9..=11 => RankBucket::High, // J, Q, K
+        _ => RankBucket::Ace,       // A
     }
 }
 
@@ -704,9 +700,9 @@ mod tests {
                 "TdTs4c",
                 Pairedness::Paired,
                 Suitedness::Rainbow,
-                RankBucket::Mid,         // T = rank idx 8 → Mid
-                ConnectBucket::Gapped,   // T(idx8) - 4(idx2) = 6 → Gapped
-                DrawBucket::None,        // T-4 differ by 6 → not within 4
+                RankBucket::Mid,       // T = rank idx 8 → Mid
+                ConnectBucket::Gapped, // T(idx8) - 4(idx2) = 6 → Gapped
+                DrawBucket::None,      // T-4 differ by 6 → not within 4
                 DrawBucket::None,
                 true,
             ),
@@ -840,9 +836,8 @@ mod tests {
             (Pairedness::Trips, Suitedness::Monotone, RankBucket::Mid),
         ];
         for &(p, s, r) in cases {
-            let bits = ((p as u16) << BITS_PAIRED)
-                | ((s as u16) << BITS_SUIT)
-                | ((r as u16) << BITS_RANK);
+            let bits =
+                ((p as u16) << BITS_PAIRED) | ((s as u16) << BITS_SUIT) | ((r as u16) << BITS_RANK);
             let t = TextureBucket(bits);
             assert_eq!(t.paired(), p);
             assert_eq!(t.suited(), s);
@@ -856,8 +851,8 @@ mod tests {
         // and ranks — so the texture bucket must be invariant under it.
         use crate::iso::canonical_board;
         let cases = &[
-            "AhKh2s", "AsKsQs", "JhTh9c", "8h8c3d", "2c3d8h", "AcAdAh",
-            "7s6s5s", "KhQhJc", "9s9h4d", "Ad5d4d", "TdTs4c", "Ks7h2s",
+            "AhKh2s", "AsKsQs", "JhTh9c", "8h8c3d", "2c3d8h", "AcAdAh", "7s6s5s", "KhQhJc",
+            "9s9h4d", "Ad5d4d", "TdTs4c", "Ks7h2s",
         ];
         for s in cases {
             let a = flop(s);

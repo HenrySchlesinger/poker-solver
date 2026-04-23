@@ -17,6 +17,10 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 smallvec = { workspace = true }
 bytemuck = { workspace = true }
+# Cache compression (A33). Used by `preflop.rs` and `flop_cache.rs` for
+# the optional compressed write/load paths. Default features disabled to
+# drop the tokio layer — we only need the sync codec.
+zstd = { workspace = true }
 
 [dev-dependencies]
 # Property-based testing: used by tests/proptest_ranges.rs (A24). See

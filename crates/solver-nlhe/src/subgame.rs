@@ -293,10 +293,7 @@ impl NlheSubgame {
                 state.actions.iter_street(Street::River).last(),
                 Some(Action::AllIn) | Some(Action::Raise(_))
             );
-            if !last_was_allin_raise
-                && my_stack_remaining > to_call
-                && my_stack_remaining > 0
-            {
+            if !last_was_allin_raise && my_stack_remaining > to_call && my_stack_remaining > 0 {
                 actions.push(Action::AllIn);
             }
             actions
@@ -400,7 +397,13 @@ impl Game for NlheSubgame {
             .actions
             .iter_street(Street::River)
             .enumerate()
-            .find_map(|(i, a)| if matches!(a, Action::Fold) { Some(i) } else { None });
+            .find_map(|(i, a)| {
+                if matches!(a, Action::Fold) {
+                    Some(i)
+                } else {
+                    None
+                }
+            });
 
         let hero_from_hero_pov: f32;
         if let Some(fold_idx) = folder_on_river {
@@ -417,12 +420,11 @@ impl Game for NlheSubgame {
             };
         } else {
             // Showdown.
-            let sign = self.showdown_sign[state.hero_combo as usize]
-                [state.villain_combo as usize];
+            let sign = self.showdown_sign[state.hero_combo as usize][state.villain_combo as usize];
             hero_from_hero_pov = match sign {
-                1 => villain_total as f32,     // hero wins: gains opp commit
-                -1 => -(hero_total as f32),    // hero loses: loses own commit
-                0 => 0.0,                      // tie: split, zero net
+                1 => villain_total as f32,  // hero wins: gains opp commit
+                -1 => -(hero_total as f32), // hero loses: loses own commit
+                0 => 0.0,                   // tie: split, zero net
                 _ => unreachable!("showdown_sign must be -1, 0, or 1"),
             };
         }
@@ -579,10 +581,24 @@ fn river_is_closed(actions: &ActionLog) -> bool {
 
 /// Build the `1326 × 1326` showdown sign matrix for this board.
 fn build_showdown_matrix(board: &Board) -> Box<ShowdownMatrix> {
-    // Allocate on the heap — this is 1.76 MB.
-    let mut mat: Box<ShowdownMatrix> =
-        vec![[0i8; NUM_COMBOS]; NUM_COMBOS].into_boxed_slice().try_into()
-            .expect("ShowdownMatrix allocation should have exactly NUM_COMBOS rows");
+    // Allocate on the heap — this is ~1.76 MB (1326² bytes).
+    //
+    // We allocate a `Vec<i8>` of NUM_COMBOS² zeros, then reinterpret
+    // it as a `Box<ShowdownMatrix>`. Going through `Vec<u8>` avoids
+    // any stack-resident intermediate array: the vec lives on the
+    // heap from the moment it's constructed. The `into_boxed_slice()`
+    // + `TryInto<Box<[[i8; N]; N]>>` route can hit a stack blow-up on
+    // some toolchains because the cast moves the array on the stack
+    // transiently.
+    let flat: Vec<i8> = vec![0i8; NUM_COMBOS * NUM_COMBOS];
+    let boxed_slice = flat.into_boxed_slice();
+    // SAFETY: we allocated exactly NUM_COMBOS * NUM_COMBOS * 1 = 1.76 MB
+    // bytes of i8. `ShowdownMatrix` is `[[i8; NUM_COMBOS]; NUM_COMBOS]`,
+    // which has the same layout (row-major, tightly packed, no padding
+    // — i8 arrays are trivially alignment-1). So the pointer is a
+    // valid `Box<ShowdownMatrix>` after reinterpretation.
+    let ptr = Box::into_raw(boxed_slice) as *mut ShowdownMatrix;
+    let mut mat: Box<ShowdownMatrix> = unsafe { Box::from_raw(ptr) };
 
     let board_mask = board_card_mask(board);
 
@@ -784,7 +800,10 @@ mod tests {
         // Nobody folded. Hero wins showdown; utility = villain's total
         // committed = pot_start/2 = 50.
         let u = sg.utility(&state, Player::Hero);
-        assert!((u - 50.0).abs() < 1e-4, "expected +50 on showdown win, got {u}");
+        assert!(
+            (u - 50.0).abs() < 1e-4,
+            "expected +50 on showdown win, got {u}"
+        );
     }
 
     #[test]

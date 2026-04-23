@@ -195,7 +195,10 @@ mod tests {
 
         // Category tag in the top bits should be 8 (StraightFlush).
         let category = royal.0 >> HandRank::INNER_BITS;
-        assert_eq!(category, 8, "royal flush should sit in StraightFlush category");
+        assert_eq!(
+            category, 8,
+            "royal flush should sit in StraightFlush category"
+        );
     }
 
     #[test]
