@@ -154,12 +154,45 @@ impl<G: Game> CfrPlus<G> {
     /// variants in `mccfr.rs` can diverge from this structure when they
     /// need to.
     pub fn iterate(&mut self) {
+        let root = self.game.initial_state();
+        self.iterate_from(&[(root, 1.0)])
+    }
+
+    /// Advance the iteration counter and run one CFR+ iteration
+    /// starting from a list of `(root, weight)` pairs, where `weight`
+    /// is the probability of that root being the actual game root.
+    ///
+    /// This is the hook callers use to model a **chance layer above the
+    /// Game trait**: enumerate the chance outcomes, pass each as a
+    /// root with its prior, and the solver treats the collection as a
+    /// single-iteration mixture. The CFR+ regret and strategy updates
+    /// are accumulated *across* the walks, not per-walk, because each
+    /// walk shares the same iteration index.
+    ///
+    /// Weights must be non-negative and typically sum to 1. They are
+    /// applied as an extra multiplicative factor on both the reach
+    /// probabilities and the counterfactual reach, so the per-info-set
+    /// regret and strategy updates come out weighted correctly.
+    ///
+    /// Callers that don't need a chance layer should use
+    /// [`CfrPlus::iterate`] instead.
+    pub fn iterate_from(&mut self, roots: &[(G::State, f32)]) {
         self.iteration = self.iteration.saturating_add(1);
 
-        // Two traversals per iteration — one per updating player.
-        let root = self.game.initial_state();
         for &update_player in &[Player::Hero, Player::Villain] {
-            self.walk(&root, update_player, 1.0, 1.0);
+            for (root, weight) in roots {
+                let w = *weight;
+                debug_assert!(w >= 0.0, "chance-layer weight must be non-negative");
+                if w == 0.0 {
+                    continue;
+                }
+                // Entering at weight `w` for both players is equivalent
+                // to a chance node whose prior is `w`: it scales both
+                // own-reach and counterfactual-reach uniformly, which
+                // is the correct shape for regret / strategy_sum
+                // updates under a chance prior.
+                self.walk(root, update_player, w, w);
+            }
         }
     }
 
@@ -167,6 +200,15 @@ impl<G: Game> CfrPlus<G> {
     pub fn run(&mut self, iterations: u32) {
         for _ in 0..iterations {
             self.iterate();
+        }
+    }
+
+    /// Run `iterations` iterations of CFR+, starting each iteration
+    /// from the chance-weighted mixture `roots`. See
+    /// [`CfrPlus::iterate_from`].
+    pub fn run_from(&mut self, roots: &[(G::State, f32)], iterations: u32) {
+        for _ in 0..iterations {
+            self.iterate_from(roots);
         }
     }
 

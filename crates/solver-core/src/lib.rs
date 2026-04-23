@@ -12,10 +12,10 @@
 #![warn(missing_docs)]
 
 pub mod cfr;
-pub mod mccfr;
-pub mod matching;
 pub mod convergence;
 pub mod game;
+pub mod matching;
+pub mod mccfr;
 
 pub use cfr::{CfrPlus, Strategy};
 pub use convergence::{best_response_value, exploitability_two_player_zero_sum};
