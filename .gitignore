@@ -29,3 +29,9 @@ perf.data*
 
 # Colab
 colab/**/*.ipynb_checkpoints/
+
+# TexasSolver differential-testing artifacts (see docs/DIFFERENTIAL_TESTING.md).
+# The binary is AGPL; we build it locally and use it as a test oracle but
+# never commit it or its source tree.
+bin/
+vendor/TexasSolver/
