@@ -1,0 +1,8 @@
+# Compiled swift-harness binary — produced by the swiftc command in
+# this directory's README.md. Never committed.
+swift-harness
+swift-harness.dSYM/
+*.o
+*.swiftdoc
+*.swiftmodule
+*.swiftsourceinfo
