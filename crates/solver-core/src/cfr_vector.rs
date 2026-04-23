@@ -66,6 +66,7 @@
 use std::collections::HashMap;
 
 use smallvec::SmallVec;
+use wide::{f32x8, CmpGt};
 
 use crate::cfr::Strategy;
 use crate::game::{InfoSetId, Player};
@@ -444,8 +445,22 @@ impl<G: VectorGame> CfrPlusVector<G> {
             let p = &strategy_take[i];
             match current {
                 Player::Hero => {
-                    for (c, slot) in next_hero_take.iter_mut().enumerate() {
-                        *slot = reach_hero[c] * p[c];
+                    // SIMD: next_hero_take[c] = reach_hero[c] * p[c]
+                    // A73 profile: line 448 was 9.3 % of walk self-time.
+                    let chunks = cw / 8;
+                    let tail_start = chunks * 8;
+                    for ch in 0..chunks {
+                        let base = ch * 8;
+                        let r_slice: [f32; 8] = reach_hero[base..base + 8].try_into().unwrap();
+                        let p_slice: [f32; 8] = p[base..base + 8].try_into().unwrap();
+                        let r_v = f32x8::from(r_slice);
+                        let p_v = f32x8::from(p_slice);
+                        let result = r_v * p_v;
+                        let arr: [f32; 8] = result.into();
+                        next_hero_take[base..base + 8].copy_from_slice(&arr);
+                    }
+                    for c in tail_start..cw {
+                        next_hero_take[c] = reach_hero[c] * p[c];
                     }
                     next_villain_take.copy_from_slice(reach_villain);
                     self.walk(
