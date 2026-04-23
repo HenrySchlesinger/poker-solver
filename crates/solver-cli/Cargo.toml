@@ -19,3 +19,10 @@ solver-eval = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+# `serde` + derive are used by `tests/fixtures_parse.rs` (owned by Agent A15)
+# and by integration tests in `tests/cli.rs`. Kept as a dev-dep because the
+# CLI binary itself doesn't need serde-derive on its hot path — only the
+# validate/fixture-loading paths do, and those live in test code today.
+serde = { workspace = true }
