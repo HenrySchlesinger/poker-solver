@@ -50,7 +50,7 @@ use smallvec::{smallvec, SmallVec};
 use crate::cfr::Strategy;
 use crate::convergence::exploitability_two_player_zero_sum;
 use crate::game::{Game, InfoSetId, Player};
-use crate::matching::regret_match;
+use crate::matching_simd::regret_match_simd;
 use crate::tables::RegretTables;
 
 /// Inline capacity for per-node scratch vectors (strategy, action utils).
@@ -353,11 +353,19 @@ impl<G: Game> CfrPlusFlat<G> {
         // bet tree we actually use in v0.1 (Kuhn is 2 actions, NLHE is
         // ≤5) without touching the heap — that matters a lot at Kuhn
         // scale where allocation dominates the per-walk cost.
+        //
+        // We dispatch to `regret_match_simd`, which internally short-
+        // circuits to the scalar path for `num_actions < 8` (the
+        // `SIMD_THRESHOLD` in `matching_simd.rs`). For NLHE bet trees
+        // (≤5 actions) this is a zero-overhead forward to the scalar
+        // `regret_match`; for the future preflop-grid / full-combo hot
+        // paths it picks up the `f32x8` vectorization without any change
+        // at the call site.
         let strategy: SmallVec<[f32; MAX_INLINE_ACTIONS]> = {
             let (regrets_full, scratch_full) = self.tables.regrets_and_current_mut(idx);
             let regrets = &regrets_full[..num_actions];
             let scratch = &mut scratch_full[..num_actions];
-            regret_match(regrets, scratch);
+            regret_match_simd(regrets, scratch);
             SmallVec::from_slice(scratch)
         };
 
