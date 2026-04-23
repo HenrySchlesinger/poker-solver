@@ -93,10 +93,15 @@ downloading if you want to confirm.
 
 ## 4. Add to a Swift Package Manager target
 
-### 4a. As a binary target in Package.swift
+### 4a. As a binary target in Package.swift (preferred)
 
-This is the shape we want Poker Panel using. Put the artifact behind
-a versioned download URL so you control updates.
+This is the shape we want Poker Panel using. v0.1.0 ships a real
+`.xcframework.zip` asset on the GitHub Release, so you can wire it in
+directly — no hand-wrapping needed.
+
+The release attaches **`PokerSolver-v0.1.0.xcframework.zip`** alongside
+the raw `.a`/`.dylib` tarball. Both ship; the `.xcframework.zip` is the
+SwiftPM-facing one.
 
 ```swift
 // Package.swift
@@ -105,47 +110,59 @@ let package = Package(
     platforms: [.macOS(.v13)],
     targets: [
         .binaryTarget(
-            name: "PokerSolverFFI",
-            url: "https://github.com/henryschlesinger/poker-solver/releases/download/v0.1.0/PokerSolverFFI.xcframework.zip",
+            name: "PokerSolverBinary",
+            url: "https://github.com/HenrySchlesinger/poker-solver/releases/download/v0.1.0/PokerSolver-v0.1.0.xcframework.zip",
             checksum: "<sha-256-from-release-body>"
         ),
         .target(
             name: "PokerPanelCore",
-            dependencies: ["PokerSolverFFI"]
+            dependencies: ["PokerSolverBinary"]
         ),
     ]
 )
 ```
 
-Note: v0.1.0 ships the raw `.a` + `.h`, not an `.xcframework.zip`.
-If you want to go the SPM binary-target route on v0.1, wrap the
-files yourself:
+The checksum is the `swift package compute-checksum` value of the
+downloaded zip — same as the sha256 shipped in
+`PokerSolver-v0.1.0.xcframework.zip.sha256` on the release. Verify
+locally before committing:
 
 ```bash
-mkdir -p PokerSolverFFI.xcframework/macos-arm64_x86_64/Headers
-cp libsolver_ffi.a       PokerSolverFFI.xcframework/macos-arm64_x86_64/libsolver_ffi.a
-cp solver.h              PokerSolverFFI.xcframework/macos-arm64_x86_64/Headers/
-cat > PokerSolverFFI.xcframework/Info.plist <<'PLIST'
-<!-- standard AvailableLibraries plist; see Apple docs -->
-PLIST
-zip -r PokerSolverFFI.xcframework.zip PokerSolverFFI.xcframework
-swift package compute-checksum PokerSolverFFI.xcframework.zip
+gh release download v0.1.0 -R HenrySchlesinger/poker-solver \
+    --pattern 'PokerSolver-v0.1.0.xcframework.zip'
+swift package compute-checksum PokerSolver-v0.1.0.xcframework.zip
+# paste into checksum:
 ```
 
-v0.2 will ship a pre-built `.xcframework.zip` so this step goes away.
+**What's inside the xcframework:** a single `macos-arm64_x86_64` slice
+containing `libsolver_ffi.a` (universal static lib) plus
+`Headers/solver.h` and `Headers/module.modulemap`. The modulemap
+declares a module named `PokerSolverBinary`, so after wiring the
+binary target you can `import PokerSolverBinary` from Swift and see
+the `HandState`, `SolveResult`, `solver_*` symbols directly — no
+bridging header required.
 
-### 4b. Direct linkage in an Xcode target (no SPM)
+**Optional Swifty wrapper:** this repo ships a thin Swift module
+(`crates/solver-ffi/Sources/PokerSolver/PokerSolver.swift`) that
+re-exports `PokerSolverBinary` and adds a `PokerSolverStatus` enum
+plus a `PokerSolver.version` accessor. To use it, add the `PokerSolver`
+target from this repo to your Package.swift, or copy the ~30 lines of
+Swift into your own module.
 
-If you're just dropping into the existing `Poker Panel.xcodeproj`:
+### 4b. Direct linkage in an Xcode target (no SPM, no xcframework)
 
-1. Add `libsolver_ffi.a` to the `Poker Panel` target's
+If you're just dropping into the existing `Poker Panel.xcodeproj` and
+don't want SwiftPM in the mix, use the raw `.a`/`.dylib` tarball:
+
+1. `gh release download v0.1.0 -R HenrySchlesinger/poker-solver --pattern 'solver-v0.1.0-macos-universal.tar.gz*'`
+2. Extract, then add `libsolver_ffi.a` to the `Poker Panel` target's
    **Frameworks, Libraries, and Embedded Content**.
-2. Add `solver.h` to the project, and in the target's
+3. Add `solver.h` to the project, and in the target's
    **Build Settings** set **Objective-C Bridging Header** to the path
    to `solver.h` (or `#include` it from an existing bridging header).
-3. Under **Build Settings → Library Search Paths**, add the directory
+4. Under **Build Settings → Library Search Paths**, add the directory
    containing `libsolver_ffi.a`.
-4. Build. If Swift can't see `HandState` or `solver_solve`, the
+5. Build. If Swift can't see `HandState` or `solver_solve`, the
    bridging header isn't being picked up.
 
 ---

@@ -4,17 +4,20 @@ This is the ship runbook for cutting a tagged release of `poker-solver`
 that Poker Panel (or any other Swift consumer) can pin to via Swift
 Package Manager or a manual `.a` / `.dylib` drop-in.
 
-The pipeline is two scripts:
+The pipeline is three scripts:
 
 1. [`scripts/build-release.sh`](../scripts/build-release.sh) — produces a
-   universal macOS tarball (`arm64` + `x86_64`) under
-   `target/release-bundle/`.
-2. [`scripts/gh-release.sh`](../scripts/gh-release.sh) — uploads that
-   tarball + its sha256 sidecar + the C header to a GitHub Release.
+   universal macOS tarball (`arm64` + `x86_64`) containing the raw
+   `.a` / `.dylib` / header under `target/release-bundle/`.
+2. [`scripts/build-xcframework.sh`](../scripts/build-xcframework.sh) —
+   wraps that bundle into `PokerSolver.xcframework` and zips it as
+   `PokerSolver-<VERSION>.xcframework.zip` for SwiftPM consumption.
+3. [`scripts/gh-release.sh`](../scripts/gh-release.sh) — uploads both
+   archives + their sha256 sidecars + the C header to a GitHub Release.
 
-If all you want is a clean mental model: **tag, build, release, verify,
-pin.** The rest of this doc is the "what can go wrong" and "how to
-rollback" coverage.
+If all you want is a clean mental model: **tag, build, wrap, release,
+verify, pin.** The rest of this doc is the "what can go wrong" and
+"how to rollback" coverage.
 
 ---
 
@@ -98,7 +101,7 @@ git push origin "$VERSION"
 Tag names are `vMAJOR.MINOR.PATCH`. Prereleases: `v0.1.0-rc1`,
 `v0.1.0-test`, etc. — the scripts treat them identically.
 
-### 3. Dry-run build (optional but recommended)
+### 3. Build the raw bundle
 
 ```bash
 bash scripts/build-release.sh "$VERSION"
@@ -116,10 +119,6 @@ The script:
    `target/release-bundle/solver-$VERSION-macos-universal.tar.gz` and
    emits `<tarball>.sha256` next to it.
 
-The script prints the full contents listing and the outer tarball
-sha256 at the end — you'll want the sha256 for the `Package.swift`
-update in step 6.
-
 Sanity-check the universal lib yourself:
 
 ```bash
@@ -127,7 +126,54 @@ lipo -info target/release-bundle/solver-$VERSION/lib/libsolver_ffi.a
 # expected: "Architectures in the fat file: ... are: x86_64 arm64"
 ```
 
-### 4. Publish the GitHub Release
+### 4. Wrap it in an xcframework
+
+```bash
+bash scripts/build-xcframework.sh "$VERSION"
+```
+
+The script:
+
+1. Fails fast if step 3's bundle isn't there or isn't universal.
+2. Stages `solver.h` alongside a generated `module.modulemap` that
+   declares `module PokerSolverBinary { header "solver.h"; export * }`.
+   This is what lets Swift consumers do `import PokerSolverBinary`
+   without a bridging header.
+3. Runs `xcodebuild -create-xcframework -library <static lib> -headers
+   <staged dir> -output target/release-bundle/PokerSolver.xcframework`.
+4. Verifies the resulting `Info.plist` references the `macos-arm64_x86_64`
+   slice — otherwise the xcframework is broken for Rosetta users.
+5. Zips the xcframework with `ditto -c -k --keepParent` (Apple's
+   notarization-compatible zip; SwiftPM accepts both `ditto` and `zip`
+   outputs, but `ditto` preserves symlinks correctly if we ever add
+   any).
+6. Writes `PokerSolver-$VERSION.xcframework.zip` + `.sha256` next to it.
+7. If `swift` is in `PATH`, also computes the canonical
+   `swift package compute-checksum` value (empirically identical to
+   sha256-of-file for zips, but reported separately for clarity).
+
+**Why a zip, not a tar.gz:** `swift package dump-package` rejects
+`.binaryTarget(url:)` values ending in anything other than
+`artifactbundleindex` or `zip` with "unsupported extension". That's a
+SwiftPM requirement going back to Swift 5.3.
+
+**Why a modulemap:** without `module.modulemap` in the Headers folder,
+Swift can't surface the C types as a module — `import PokerSolverBinary`
+fails with "no such module". The script generates a minimal modulemap
+that exports everything declared in `solver.h`.
+
+Sanity-check:
+
+```bash
+ls target/release-bundle/PokerSolver.xcframework/
+# expected: Info.plist  macos-arm64_x86_64
+ls target/release-bundle/PokerSolver.xcframework/macos-arm64_x86_64/
+# expected: Headers  libsolver_ffi.a
+ls target/release-bundle/PokerSolver.xcframework/macos-arm64_x86_64/Headers/
+# expected: module.modulemap  solver.h
+```
+
+### 5. Publish the GitHub Release
 
 ```bash
 bash scripts/gh-release.sh "$VERSION"
@@ -135,43 +181,47 @@ bash scripts/gh-release.sh "$VERSION"
 
 The script:
 
-1. Refuses to run if `gh` is unauthenticated or the tag doesn't exist.
-2. Attaches three assets to the release:
-   - `solver-$VERSION-macos-universal.tar.gz` — the bundle.
-   - `solver-$VERSION-macos-universal.tar.gz.sha256` — the outer sha.
-   - `solver.h` — the C header, so consumers without SwiftPM can just
-     curl it.
+1. Refuses to run if `gh` is unauthenticated, the tag doesn't exist,
+   the raw tarball is missing, or the xcframework zip is missing.
+2. Attaches five assets to the release (in this order):
+   - `solver-$VERSION-macos-universal.tar.gz` — raw .a/.dylib bundle.
+   - `solver-$VERSION-macos-universal.tar.gz.sha256` — its sha.
+   - `PokerSolver-$VERSION.xcframework.zip` — SPM binaryTarget zip.
+   - `PokerSolver-$VERSION.xcframework.zip.sha256` — the sha that
+     goes into Package.swift `checksum:`.
+   - `solver.h` — the C header, for consumers without SwiftPM.
 3. Uses `docs/RELEASE_NOTES_$VERSION.md` if it exists, else
-   `docs/RELEASE_NOTES.md`, else a synthesized one-liner noting the sha.
+   `docs/RELEASE_NOTES.md`, else a synthesized note listing both shas.
 
-### 5. Verify the published release
+### 6. Verify the published release
 
 Visit `https://github.com/HenrySchlesinger/poker-solver/releases/tag/$VERSION`
-in a browser. Download the tarball, then:
+in a browser. Confirm all five assets are attached, then:
 
 ```bash
-# Re-check the sha published in the release matches what we built:
+# Compare published shas to what we built:
 cat target/release-bundle/solver-$VERSION-macos-universal.tar.gz.sha256
-# ... and compare to the sha attached to the release.
+cat target/release-bundle/PokerSolver-$VERSION.xcframework.zip.sha256
 
-# Extract into a scratch dir and confirm the contents:
+# Download the xcframework zip and verify it builds cleanly in a
+# scratch SPM consumer:
 tmpdir=$(mktemp -d)
-tar xzf "$HOME/Downloads/solver-$VERSION-macos-universal.tar.gz" -C "$tmpdir"
-ls "$tmpdir/solver-$VERSION"
-# Expect: lib/ include/ VERSION CHECKSUMS.sha256
-( cd "$tmpdir/solver-$VERSION" && shasum -a 256 -c CHECKSUMS.sha256 )
-# All files should report `OK`.
+cd "$tmpdir"
+swift package init --type executable
+# ... then edit Package.swift to add the binaryTarget block from
+# docs/INTEGRATION.md section 4a, pointing at the release URL +
+# newly-published sha. `swift build` should succeed.
 ```
 
-### 6. Update `Package.swift` with the real checksum
+### 7. Update `Package.swift` with the real checksum
 
 The [`crates/solver-ffi/Package.swift`](../crates/solver-ffi/Package.swift)
-manifest ships with `checksum: "TODO_CHECKSUM_AFTER_FIRST_RELEASE"`.
-After the release is live, replace it with the tarball's sha256 and
-bump the URL to the new version:
+manifest ships with `checksum: "FILL_AFTER_RELEASE"`. After the release
+is live, replace it with the xcframework zip's sha256 and bump the URL
+to the new version:
 
 ```bash
-NEW_SHA=$(awk '{print $1}' target/release-bundle/solver-$VERSION-macos-universal.tar.gz.sha256)
+NEW_SHA=$(awk '{print $1}' target/release-bundle/PokerSolver-$VERSION.xcframework.zip.sha256)
 # Edit crates/solver-ffi/Package.swift manually — one URL line, one
 # checksum line — then:
 git add crates/solver-ffi/Package.swift
@@ -179,10 +229,31 @@ git commit -m "release: Package.swift checksum for $VERSION"
 git push origin main
 ```
 
-Note: SwiftPM requires an `.xcframework` for `.binaryTarget(url:)`.
-For v0.1 the `Package.swift` is scaffolding — Poker Panel integrates the
-`.a` / `.dylib` manually per the next section. We'll ship a real
-xcframework wrapper inside `build-release.sh` for v0.2.
+Sanity: after the edit, `cd crates/solver-ffi && swift package dump-package`
+should still succeed. If it fails with "unsupported extension", the URL
+was edited to a non-zip value — revert.
+
+### Dry-run results (v0.1.0-test)
+
+Captured from a local run of the full pipeline against the v0.1.0-test
+bundle:
+
+| Asset | Size | SHA-256 |
+| --- | --- | --- |
+| `solver-v0.1.0-test-macos-universal.tar.gz` | ~11 MiB | `2d9696f66c2c1b67a114fe107ab61d19a633743e3a488f5a7b3ab679b560051c` |
+| `PokerSolver-v0.1.0-test.xcframework.zip` | ~11 MiB | `190808d81ccaa14159c30175ffc3830b784dbdabfbf9398cded40dd783d8f00e` |
+
+- `Info.plist` shape: `LibraryIdentifier = macos-arm64_x86_64`,
+  `SupportedArchitectures = [arm64, x86_64]`, `SupportedPlatform = macos`.
+- SwiftPM test-consumer package at `/tmp/test-consumer` built cleanly
+  against the local xcframework, linked, and ran: `solver_version()`
+  printed `0.1.0-wip`.
+- SwiftPM test-wrapper package at `/tmp/test-wrapper` additionally
+  compiled the `PokerSolver` Swift module (the thin wrapper in
+  `crates/solver-ffi/Sources/PokerSolver/`) on top of the xcframework
+  and ran: `PokerSolver.version` returned `0.1.0-wip`,
+  `PokerSolverStatus.{ok, cacheMiss, invalidInput}` rawValues matched
+  the enum in `solver.h`.
 
 ### 7. Notify consumers
 
@@ -195,10 +266,28 @@ your todo list:
 
 ---
 
-## Manual consumer integration (v0.1 path)
+## Consumer integration paths
 
-SwiftPM's remote binary target support is xcframework-only, so for
-v0.1 Poker Panel links the static lib directly. The steps:
+### SPM binaryTarget (preferred, requires xcframework)
+
+The v0.1 release ships a proper `.xcframework.zip`, so consumers can
+wire it in via `Package.swift`:
+
+```swift
+.binaryTarget(
+    name: "PokerSolverBinary",
+    url: "https://github.com/HenrySchlesinger/poker-solver/releases/download/v0.1.0/PokerSolver-v0.1.0.xcframework.zip",
+    checksum: "<sha from PokerSolver-v0.1.0.xcframework.zip.sha256>"
+),
+```
+
+See `docs/INTEGRATION.md` section 4a for the full example including
+the optional Swift wrapper module.
+
+### Manual `.a` drop-in (for Xcode-without-SPM setups)
+
+If you want to skip SwiftPM, the raw `.a`/`.dylib` tarball is still
+attached to the release:
 
 ```bash
 # Somewhere under ~/Desktop/Poker Panel/vendor/poker-solver/:
