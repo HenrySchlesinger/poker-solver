@@ -556,9 +556,31 @@ impl<G: VectorGame> CfrPlusVector<G> {
             let linear_weight = self.iteration as f32;
 
             let regret_rows = self.tables.regret_rows_mut(idx);
+            let zero8 = f32x8::splat(0.0);
+            let chunks = cw / 8;
+            let tail_start = chunks * 8;
             for (a_idx, row) in regret_rows.into_iter().enumerate() {
                 let au = &au_take[a_idx];
-                for c in 0..cw {
+                // SIMD: row[c] = max(row[c] + (au[c] - node_util[c]), 0)
+                // A73 profile: lines 503-504 were 9.6 % of walk self-time.
+                // Branchless clamp via mask-and-blend to match the scalar
+                // semantics bit-for-bit on NaN (NaN > 0 is false, contributes 0).
+                for ch in 0..chunks {
+                    let base = ch * 8;
+                    let row_slice: [f32; 8] = row[base..base + 8].try_into().unwrap();
+                    let au_slice: [f32; 8] = au[base..base + 8].try_into().unwrap();
+                    let nu_slice: [f32; 8] = node_util_take[base..base + 8].try_into().unwrap();
+                    let row_v = f32x8::from(row_slice);
+                    let au_v = f32x8::from(au_slice);
+                    let nu_v = f32x8::from(nu_slice);
+                    let raw = row_v + (au_v - nu_v);
+                    // mask-and-blend: lanes where raw > 0 survive; else 0.
+                    let mask = raw.cmp_gt(zero8);
+                    let clamped = mask & raw;
+                    let arr: [f32; 8] = clamped.into();
+                    row[base..base + 8].copy_from_slice(&arr);
+                }
+                for c in tail_start..cw {
                     let raw = row[c] + (au[c] - node_util_take[c]);
                     row[c] = if raw > 0.0 { raw } else { 0.0 };
                 }
