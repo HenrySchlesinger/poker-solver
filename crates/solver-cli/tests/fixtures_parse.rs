@@ -69,8 +69,8 @@ fn parse_board(board: &str) -> Result<Vec<Card>, String> {
     for chunk_start in (0..bytes.len()).step_by(2) {
         let chunk = std::str::from_utf8(&bytes[chunk_start..chunk_start + 2])
             .map_err(|e| format!("board slice utf8: {e}"))?;
-        let card = Card::parse(chunk)
-            .ok_or_else(|| format!("bad card {chunk:?} in board {board:?}"))?;
+        let card =
+            Card::parse(chunk).ok_or_else(|| format!("bad card {chunk:?} in board {board:?}"))?;
         out.push(card);
     }
     Ok(out)
@@ -98,8 +98,7 @@ fn require_u32(obj: &Value, field: &str, ctx: &str) -> u32 {
         .get(field)
         .and_then(Value::as_u64)
         .unwrap_or_else(|| panic!("{ctx}: missing or non-integer field {field:?}"));
-    u32::try_from(n)
-        .unwrap_or_else(|_| panic!("{ctx}: field {field:?} value {n} exceeds u32"))
+    u32::try_from(n).unwrap_or_else(|_| panic!("{ctx}: field {field:?} value {n} exceeds u32"))
 }
 
 fn require_f32(obj: &Value, field: &str, ctx: &str) -> f32 {
@@ -172,11 +171,7 @@ fn validate_fixture(path: &Path, fixture: &Value) {
     let expected_notes = require_str(fixture, "expected_notes", &ctx);
 
     assert_only_known_fields(input, INPUT_FIELDS, &format!("{ctx}.input"));
-    assert_only_known_fields(
-        tolerances,
-        TOLERANCE_FIELDS,
-        &format!("{ctx}.tolerances"),
-    );
+    assert_only_known_fields(tolerances, TOLERANCE_FIELDS, &format!("{ctx}.tolerances"));
 
     // (3) id matches filename stem.
     assert_eq!(
@@ -185,9 +180,8 @@ fn validate_fixture(path: &Path, fixture: &Value) {
     );
 
     // (4) street enumeration.
-    let board_len = expected_board_chars(street).unwrap_or_else(|| {
-        panic!("{ctx}: street {street:?} must be one of flop|turn|river")
-    });
+    let board_len = expected_board_chars(street)
+        .unwrap_or_else(|| panic!("{ctx}: street {street:?} must be one of flop|turn|river"));
 
     // (5) to_act enumeration.
     let to_act = require_str(input, "to_act", &format!("{ctx}.input"));
@@ -221,9 +215,8 @@ fn validate_fixture(path: &Path, fixture: &Value) {
     // (8) ranges parse via the real parser.
     let hero_range = require_str(input, "hero_range", &format!("{ctx}.input"));
     let villain_range = require_str(input, "villain_range", &format!("{ctx}.input"));
-    Range::parse(hero_range).unwrap_or_else(|e| {
-        panic!("{ctx}: hero_range parse failed: {e} (range = {hero_range:?})")
-    });
+    Range::parse(hero_range)
+        .unwrap_or_else(|e| panic!("{ctx}: hero_range parse failed: {e} (range = {hero_range:?})"));
     Range::parse(villain_range).unwrap_or_else(|e| {
         panic!("{ctx}: villain_range parse failed: {e} (range = {villain_range:?})")
     });
@@ -238,8 +231,7 @@ fn validate_fixture(path: &Path, fixture: &Value) {
     assert!(iterations > 0, "{ctx}: iterations must be > 0");
 
     // Tolerances sanity.
-    let action_freq_abs =
-        require_f32(tolerances, "action_freq_abs", &format!("{ctx}.tolerances"));
+    let action_freq_abs = require_f32(tolerances, "action_freq_abs", &format!("{ctx}.tolerances"));
     let ev_bb_abs = require_f32(tolerances, "ev_bb_abs", &format!("{ctx}.tolerances"));
     assert!(
         action_freq_abs > 0.0 && action_freq_abs <= 1.0,
@@ -273,8 +265,7 @@ fn validate_fixture(path: &Path, fixture: &Value) {
 fn list_spot_files() -> Vec<std::path::PathBuf> {
     let dir = fixtures_dir();
     let mut out = Vec::new();
-    let entries =
-        fs::read_dir(&dir).unwrap_or_else(|e| panic!("read_dir {dir:?}: {e}"));
+    let entries = fs::read_dir(&dir).unwrap_or_else(|e| panic!("read_dir {dir:?}: {e}"));
     for entry in entries {
         let entry = entry.expect("read entry");
         let path = entry.path();
@@ -300,10 +291,9 @@ fn every_fixture_parses_and_validates() {
 
     let mut seen_ids = std::collections::HashSet::new();
     for path in &files {
-        let text = fs::read_to_string(path)
-            .unwrap_or_else(|e| panic!("read {path:?}: {e}"));
-        let fixture: Value = serde_json::from_str(&text)
-            .unwrap_or_else(|e| panic!("parse {path:?}: {e}"));
+        let text = fs::read_to_string(path).unwrap_or_else(|e| panic!("read {path:?}: {e}"));
+        let fixture: Value =
+            serde_json::from_str(&text).unwrap_or_else(|e| panic!("parse {path:?}: {e}"));
         validate_fixture(path, &fixture);
         let id = fixture
             .get("id")
@@ -336,9 +326,6 @@ fn twenty_canonical_fixtures_exist() {
     );
     for n in 1..=20 {
         let expected = fixtures_dir().join(format!("spot_{n:03}.json"));
-        assert!(
-            expected.exists(),
-            "missing canonical fixture: {expected:?}"
-        );
+        assert!(expected.exists(), "missing canonical fixture: {expected:?}");
     }
 }
