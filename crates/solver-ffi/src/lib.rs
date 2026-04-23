@@ -89,7 +89,16 @@ pub struct SolveResult {
     pub action_ev: [f32; 8],
     /// Hero's equity vs villain's range on this board.
     pub hero_equity: f32,
-    /// Exploitability at solve termination (lower = closer to Nash).
+    /// Exploitability at solve termination.
+    ///
+    /// **v0.1:** always `f32::NAN` on a successful solve — see
+    /// `docs/EXPLOITABILITY_TRIAGE.md`. The current `CfrPlus::exploitability()`
+    /// walker reports a phantom-root number that scales with pot size,
+    /// not a real Nash distance, so we emit NaN as a "not meaningful"
+    /// sentinel until the root-aware helper lands post-v0.1. The field
+    /// is retained in the struct (rather than removed) because Swift
+    /// callers compiled against the v0.1 header assume this layout —
+    /// changing it would be an ABI break.
     pub exploitability: f32,
     /// Iterations run.
     pub iterations: u32,
@@ -562,13 +571,20 @@ fn action_label(a: &Action) -> String {
 /// - Actions 9+ are silently dropped — the v0.1 bet tree never produces
 ///   more than a handful of root actions, so this is a non-issue today.
 fn build_solve_result(outcome: &SolveOutcome) -> SolveResult {
+    // v0.1: set to NaN — the current exploitability() walker reports a
+    // phantom-root number that scales with pot, not a real Nash distance.
+    // See docs/EXPLOITABILITY_TRIAGE.md; root-aware helper lands post-v0.1.
+    // We keep `outcome.exploitability` populated internally (cheap, same
+    // compute path) so switching back to a real value later is a one-line
+    // change, but the FFI wire value is the NaN sentinel.
+    let _ = outcome.exploitability;
     let mut result = SolveResult {
         solver_version: 1,
         action_count: 0,
         action_freq: [0.0; 8],
         action_ev: [0.0; 8],
         hero_equity: outcome.hero_equity,
-        exploitability: outcome.exploitability,
+        exploitability: f32::NAN,
         iterations: outcome.iterations,
         compute_ms: outcome.compute_ms,
     };

@@ -214,6 +214,19 @@ fn solve_with_canonical_hand_state_returns_ok() {
         out.hero_equity
     );
 
+    // v0.1: exploitability is a NaN sentinel on successful solves. The
+    // underlying `CfrPlus::exploitability()` walker is broken (see
+    // docs/EXPLOITABILITY_TRIAGE.md); we emit NaN rather than a wrong
+    // number. Asserting NaN here is a contract lock: if a future edit
+    // accidentally wires the real (still-wrong) number back into the
+    // FFI, this test breaks loudly.
+    assert!(
+        out.exploitability.is_nan(),
+        "v0.1: SolveResult.exploitability must be NaN (see \
+         EXPLOITABILITY_TRIAGE.md); got {}",
+        out.exploitability
+    );
+
     // Iterations should match the FFI's hardcoded default. If we bump
     // DEFAULT_ITERATIONS, update this assertion to match.
     assert_eq!(

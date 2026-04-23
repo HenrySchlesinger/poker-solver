@@ -159,7 +159,16 @@ typedef struct SolveResult {
    */
   float hero_equity;
   /*
-   Exploitability at solve termination (lower = closer to Nash).
+   Exploitability at solve termination.
+
+   **v0.1:** always `f32::NAN` on a successful solve — see
+   `docs/EXPLOITABILITY_TRIAGE.md`. The current `CfrPlus::exploitability()`
+   walker reports a phantom-root number that scales with pot size,
+   not a real Nash distance, so we emit NaN as a "not meaningful"
+   sentinel until the root-aware helper lands post-v0.1. The field
+   is retained in the struct (rather than removed) because Swift
+   callers compiled against the v0.1 header assume this layout —
+   changing it would be an ABI break.
    */
   float exploitability;
   /*
