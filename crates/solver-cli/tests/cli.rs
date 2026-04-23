@@ -113,31 +113,28 @@ fn precompute_is_scaffolded_not_yet_implemented() {
     );
 }
 
-/// When the upstream `NlheSubgame::new` lands, remove the `#[ignore]` and
-/// this test becomes the "produces valid JSON" integration guarantee.
+/// End-to-end "produces valid JSON" integration guarantee.
 ///
-/// Today `build_subgame` intentionally returns a blocked-upstream error,
-/// so the solve fails before printing JSON. Rather than assert a
-/// failure-mode that will flip once upstream lands, we ignore the test
-/// with a clear note — it'll start running automatically once the
-/// blocking guard is removed and `cargo test -- --include-ignored`
-/// catches it in CI.
+/// `build_subgame` now wires into `NlheSubgame::new` + `CfrPlus`, so a
+/// river spot (v0.1 handles river-only) produces a full JSON document
+/// on stdout. We use the canonical royal-vs-royal spot from
+/// `docs/ALGORITHMS.md` with a tiny iteration count so the test stays
+/// fast.
 #[test]
-#[ignore = "unblocks when NlheSubgame::new lands (Day 2 main path)"]
 fn solve_produces_valid_json_end_to_end() {
     let output = bin()
         .args([
             "solve",
             "--board",
-            "AhKh2s",
+            "AhKhQhJhTh",
             "--hero-range",
-            "AA,KK,AKs",
+            "AsKs",
             "--villain-range",
-            "22+,AJs+,KQs",
+            "AsKs",
             "--pot",
             "100",
             "--stack",
-            "1000",
+            "500",
             "--iterations",
             "10", // small iteration count so the test is fast
         ])
@@ -145,7 +142,7 @@ fn solve_produces_valid_json_end_to_end() {
         .expect("run solver-cli solve");
     assert!(
         output.status.success(),
-        "solve should succeed once upstream lands; stderr: {}",
+        "solve should succeed on a river spot; stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);

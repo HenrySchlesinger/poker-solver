@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # build-xcframework.sh — wrap the build-release.sh output into an .xcframework
-# tarball that SwiftPM's `.binaryTarget(url:)` can actually consume.
+# zip that SwiftPM's `.binaryTarget(url:)` can actually consume.
 #
 # Usage:
 #   scripts/build-xcframework.sh                 # infer version from git describe
@@ -19,17 +19,21 @@
 #     macos-arm64_x86_64/                        # universal slice
 #       libsolver_ffi.a                          # universal static lib
 #       Headers/solver.h                         # cbindgen'd C header
-#   PokerSolver-<VERSION>.xcframework.tar.gz     # tarball for SPM binaryTarget
-#   PokerSolver-<VERSION>.xcframework.tar.gz.sha256
+#   PokerSolver-<VERSION>.xcframework.zip        # zip for SPM binaryTarget
+#   PokerSolver-<VERSION>.xcframework.zip.sha256
 #
 # Why this script exists:
 #   A28's build-release.sh ships a raw .a/.dylib + header. SwiftPM's
-#   .binaryTarget(url:) refuses anything other than a .xcframework.zip or
-#   .xcframework.tar.gz. So this script takes A28's bundle and wraps it
-#   into the xcframework shape xcodebuild expects, then tarballs that.
+#   .binaryTarget(url:) accepts only .zip archives of .xcframework
+#   directories (`swift package dump-package` errors on `.tar.gz` with
+#   "unsupported extension"). So this script takes A28's bundle and
+#   wraps it into the xcframework shape xcodebuild expects, then zips it.
 #
-#   `xcodebuild -create-xcframework` builds the directory; we tarball it
-#   with `tar czf` after because xcodebuild doesn't have a tarball mode.
+#   `xcodebuild -create-xcframework` builds the directory; we zip it
+#   with `ditto -c -k --keepParent` afterward — that's Apple's
+#   recommended tool for notarization-compatible zip archives that
+#   preserve symlinks and resource forks. SwiftPM consumes zips
+#   produced by `ditto` interchangeably with `zip`.
 
 set -euo pipefail
 
@@ -58,7 +62,7 @@ need() {
 }
 need xcodebuild
 need lipo
-need tar
+need ditto
 need shasum
 
 # --- preflight: input bundle must exist --------------------------------------
@@ -128,33 +132,50 @@ echo "--- xcframework contents ($XCF_DIR) ---"
 ( cd "$XCF_DIR" && find . -type f | sort | sed 's|^\./|  |' )
 echo
 
-# --- tarball ------------------------------------------------------------------
-TARBALL_NAME="PokerSolver-$VERSION.xcframework.tar.gz"
-TARBALL_PATH="$BUNDLE_PARENT/$TARBALL_NAME"
-SHA_PATH="$TARBALL_PATH.sha256"
+# --- zip ---------------------------------------------------------------------
+ZIP_NAME="PokerSolver-$VERSION.xcframework.zip"
+ZIP_PATH="$BUNDLE_PARENT/$ZIP_NAME"
+SHA_PATH="$ZIP_PATH.sha256"
 
-rm -f "$TARBALL_PATH" "$SHA_PATH"
+rm -f "$ZIP_PATH" "$SHA_PATH"
 
-echo "--- packaging tarball ---"
-# tar from inside release-bundle so the archive stores a relative path
+echo "--- packaging zip ---"
+# ditto from inside release-bundle so the archive stores a relative path
 # (PokerSolver.xcframework/...) rather than an absolute one.
-( cd "$BUNDLE_PARENT" && tar czf "$TARBALL_NAME" "PokerSolver.xcframework" )
+# --keepParent preserves PokerSolver.xcframework as the top-level dir.
+( cd "$BUNDLE_PARENT" && ditto -c -k --keepParent "PokerSolver.xcframework" "$ZIP_NAME" )
 
-# SwiftPM's `.binaryTarget(url:)` checksum is `swift package compute-checksum`.
-# That algorithm is literally sha256-of-the-file, identical to `shasum -a 256`,
-# so we emit that here. The Package.swift consumer will paste this value.
-( cd "$BUNDLE_PARENT" && shasum -a 256 "$TARBALL_NAME" > "$TARBALL_NAME.sha256" )
+# SwiftPM's `.binaryTarget(url:)` checksum for a remote xcframework zip
+# is NOT a sha256-of-the-file — it's the sha256 computed by
+# `swift package compute-checksum <zip>`. Empirically for a regular zip
+# these match sha256(file), but we emit both for clarity and compute the
+# authoritative value via `swift package compute-checksum`.
+( cd "$BUNDLE_PARENT" && shasum -a 256 "$ZIP_NAME" > "$ZIP_NAME.sha256" )
 
-TARBALL_SIZE_BYTES="$(wc -c <"$TARBALL_PATH" | tr -d ' ')"
-TARBALL_SIZE_MB="$(( (TARBALL_SIZE_BYTES + 1024 * 1024 - 1) / (1024 * 1024) ))"
-CHECKSUM="$(awk '{print $1}' "$SHA_PATH")"
+# Best effort: if `swift` is installed, compute the canonical SPM checksum
+# and print it. This is what goes into Package.swift.
+SPM_CHECKSUM=""
+if command -v swift >/dev/null 2>&1; then
+    SPM_CHECKSUM="$(swift package compute-checksum "$ZIP_PATH" 2>/dev/null || true)"
+fi
+
+ZIP_SIZE_BYTES="$(wc -c <"$ZIP_PATH" | tr -d ' ')"
+ZIP_SIZE_MB="$(( (ZIP_SIZE_BYTES + 1024 * 1024 - 1) / (1024 * 1024) ))"
+FILE_SHA="$(awk '{print $1}' "$SHA_PATH")"
 
 echo
 echo "=== xcframework ready ==="
-echo "framework: $XCF_DIR"
-echo "tarball:   $TARBALL_PATH"
-echo "size:      ${TARBALL_SIZE_BYTES} bytes (~${TARBALL_SIZE_MB} MiB)"
-echo "sha256:    $CHECKSUM"
+echo "framework:   $XCF_DIR"
+echo "zip:         $ZIP_PATH"
+echo "size:        ${ZIP_SIZE_BYTES} bytes (~${ZIP_SIZE_MB} MiB)"
+echo "file sha256: $FILE_SHA"
+if [[ -n "$SPM_CHECKSUM" ]]; then
+    echo "spm check:   $SPM_CHECKSUM"
+    CHECKSUM="$SPM_CHECKSUM"
+else
+    echo "spm check:   (swift not in PATH; use file sha256)"
+    CHECKSUM="$FILE_SHA"
+fi
 echo
 echo "next: update crates/solver-ffi/Package.swift with checksum $CHECKSUM,"
 echo "      then: scripts/gh-release.sh $VERSION"

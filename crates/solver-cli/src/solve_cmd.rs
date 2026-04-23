@@ -40,6 +40,8 @@ use std::time::Instant;
 use anyhow::{anyhow, Context, Result};
 use serde_json::{json, Value};
 use solver_core::{CfrPlus, Game, Player, Strategy};
+use solver_eval::card::Card;
+use solver_eval::combo::combo_index;
 use solver_eval::Board;
 use solver_nlhe::action::Action;
 use solver_nlhe::subgame::SubgameState;
@@ -49,6 +51,20 @@ use solver_nlhe::{BetTree, NlheSubgame, Range};
 /// `Cargo.toml`'s workspace version until we expose it via a build-time
 /// constant.
 pub const SOLVER_VERSION: &str = "0.1.0-wip";
+
+/// Worker-thread stack size for the CFR tree walk.
+///
+/// `solver_core::CfrPlus::walk` is a recursive descent over the game
+/// tree. The v0.1 NLHE bet tree (five river sizings plus raise
+/// continuations) can produce depths that overflow the default 8 MB
+/// thread stack on macOS — we've observed this on even a 1-combo-vs-1
+/// river spot with full default sizings. Running the solve on a
+/// dedicated thread with a fat stack keeps the process independent of
+/// how aggressive the bet tree gets.
+///
+/// 128 MB is overkill for v0.1 but cheap — the thread is torn down the
+/// moment the solve finishes, and committed pages are lazy.
+const SOLVE_THREAD_STACK_BYTES: usize = 128 * 1024 * 1024;
 
 /// Parsed + validated arguments for `solver-cli solve`.
 ///
@@ -92,10 +108,10 @@ pub fn parse_inputs(args: &SolveArgs) -> Result<ParsedInputs> {
     let board = Board::parse(&args.board_raw)
         .ok_or_else(|| anyhow!("invalid board: {:?}", args.board_raw))?;
 
-    let hero = Range::parse(&args.hero_range_raw)
+    let hero = parse_range_allowing_specific_combos(&args.hero_range_raw)
         .with_context(|| format!("invalid hero range: {:?}", args.hero_range_raw))?;
 
-    let villain = Range::parse(&args.villain_range_raw)
+    let villain = parse_range_allowing_specific_combos(&args.villain_range_raw)
         .with_context(|| format!("invalid villain range: {:?}", args.villain_range_raw))?;
 
     let bet_tree = match args.bet_tree.as_str() {
@@ -122,6 +138,99 @@ pub fn parse_inputs(args: &SolveArgs) -> Result<ParsedInputs> {
         stack: args.stack,
         iterations: args.iterations,
     })
+}
+
+/// Parse a range string, allowing specific-combo tokens (e.g. `"AsKs"`,
+/// `"7c7d"`) in addition to everything `Range::parse` already handles.
+///
+/// A specific-combo token is a 4-character string of the form
+/// `<rank><suit><rank><suit>`, where both suits are explicit letters.
+/// We detect these tokens and apply them directly via `combo_index`;
+/// everything else (pocket pairs, `"AKs"`-style suitedness, `"22+"`,
+/// weight suffixes, whitespace) is delegated to `Range::parse`, one
+/// token at a time.
+///
+/// This exists so the dev-harness CLI can take spot-precise inputs
+/// (like a single royal-flush-vs-royal-flush combo) without growing the
+/// grammar of the core `Range` parser.
+///
+/// Semantics match `Range::parse`'s last-write-wins: tokens are
+/// processed left-to-right, and a later token's non-zero weight
+/// overwrites any combo already written by an earlier token. A
+/// `:weight` suffix on a specific-combo token applies to that combo
+/// only; `Range::parse` handles suffixes on its own tokens.
+fn parse_range_allowing_specific_combos(s: &str) -> Result<Range> {
+    let mut range = Range::empty();
+    for raw in s.split(',') {
+        let token = raw.trim();
+        if token.is_empty() {
+            continue;
+        }
+
+        // Optional ":weight" suffix, only peeled off for specific-combo
+        // tokens. Broader tokens keep the suffix intact so `Range::parse`
+        // handles it natively.
+        let (body, weight) = match token.rsplit_once(':') {
+            Some((b, w)) => {
+                let w_trim = w.trim();
+                // Only try to parse the suffix if the body looks like a
+                // specific-combo token. Otherwise we pass the original
+                // token through to `Range::parse` unchanged.
+                if try_parse_specific_combo(b.trim()).is_some() {
+                    let parsed: f32 = w_trim.parse().with_context(|| {
+                        format!("bad weight in token {token:?} (suffix {w_trim:?})")
+                    })?;
+                    (b.trim(), parsed)
+                } else {
+                    (token, 1.0)
+                }
+            }
+            None => (token, 1.0),
+        };
+
+        // Specific-combo token: 4 chars, rank+suit+rank+suit. Applied
+        // directly; no need to go through `Range::parse`.
+        if let Some((a, b)) = try_parse_specific_combo(body) {
+            if a == b {
+                anyhow::bail!("combo token {token:?} uses the same card twice");
+            }
+            let idx = combo_index(a, b);
+            range.weights[idx] = weight;
+            continue;
+        }
+
+        // Not a specific-combo token: delegate a single token at a time
+        // to the core parser. Parsing token-by-token (rather than
+        // joining and calling `Range::parse` once) keeps the
+        // left-to-right last-write-wins semantics sensible when the
+        // user mixes specific and broad tokens.
+        let sub = Range::parse(token)
+            .map_err(|e| anyhow!("unknown token {token:?} in range {s:?}: {e}"))?;
+        // Overlay: any non-zero weight from `sub` replaces whatever is
+        // currently in `range` for that combo. Zero weights do not
+        // overwrite — otherwise a later broad token could erase an
+        // earlier specific-combo setting just by touching other combos,
+        // which is surprising.
+        for (i, &w) in sub.weights.iter().enumerate() {
+            if w != 0.0 {
+                range.weights[i] = w;
+            }
+        }
+    }
+    Ok(range)
+}
+
+/// Attempt to read `body` as a specific-combo token
+/// (`<rank><suit><rank><suit>`, 4 characters, e.g. `"AsKs"`).
+///
+/// Returns `Some((card_a, card_b))` on match, `None` otherwise.
+fn try_parse_specific_combo(body: &str) -> Option<(Card, Card)> {
+    if body.len() != 4 {
+        return None;
+    }
+    let a = Card::parse(&body[0..2])?;
+    let b = Card::parse(&body[2..4])?;
+    Some((a, b))
 }
 
 /// Entry point for the `solve` subcommand. Writes JSON to `out` (typically
@@ -164,13 +273,42 @@ pub fn run_solve(args: &SolveArgs, mut out: impl Write) -> Result<()> {
 /// returns the `result` JSON object (without the `input`/`solver_version`
 /// wrapper).
 ///
-/// Catches any panic from an upstream crate and converts it to a
-/// structured error rather than letting the process abort.
+/// The CFR walk runs on a dedicated worker thread with a large stack
+/// (`SOLVE_THREAD_STACK_BYTES`) so deep bet trees don't overflow the
+/// default 8 MB macOS thread stack. A `panic::catch_unwind` inside the
+/// worker converts any upstream panic (`todo!()`, assertion failure)
+/// into a structured error rather than letting the process abort.
 fn solve_to_json(parsed: &ParsedInputs) -> Result<Value> {
     let start = Instant::now();
 
-    let outcome = panic::catch_unwind(AssertUnwindSafe(|| run_cfr(parsed)));
-    match outcome {
+    // Clone into owned data so we can move it into the worker thread.
+    // `ParsedInputs` isn't `Send`-assumed by the caller, but all its
+    // fields (`Board`, `Range`, `BetTree`, u32s) are. Construct a fresh
+    // owned copy for the thread.
+    let parsed_owned = ParsedInputs {
+        board: parsed.board,
+        hero: parsed.hero.clone(),
+        villain: parsed.villain.clone(),
+        bet_tree: parsed.bet_tree.clone(),
+        pot: parsed.pot,
+        stack: parsed.stack,
+        iterations: parsed.iterations,
+    };
+
+    let worker = std::thread::Builder::new()
+        .name("solver-cli-cfr".to_string())
+        .stack_size(SOLVE_THREAD_STACK_BYTES)
+        .spawn(move || panic::catch_unwind(AssertUnwindSafe(|| run_cfr(&parsed_owned))))
+        .context("failed to spawn CFR worker thread")?;
+
+    // `JoinHandle::join` returns `Err` only if the worker panicked
+    // outside the `catch_unwind` (e.g. a panic during stack setup).
+    // That's fatal; report it cleanly.
+    let joined = worker
+        .join()
+        .map_err(|p| anyhow!("CFR worker thread panicked: {}", panic_message(&p)))?;
+
+    match joined {
         Ok(Ok(summary)) => {
             let compute_ms = start.elapsed().as_millis() as u64;
             Ok(build_result_json(&summary, parsed.iterations, compute_ms))
@@ -264,6 +402,12 @@ fn build_subgame(parsed: &ParsedInputs) -> Result<NlheSubgame> {
     ))
 }
 
+/// A list of (action-label, weight) pairs, used for both the aggregated
+/// root frequency vector and the matching EV-per-action vector. The two
+/// share a shape because they're two views on the same ordered action
+/// set at the root — labels line up 1:1.
+type ActionWeights = Vec<(String, f32)>;
+
 /// Aggregate the per-combo-pair root strategy into a single
 /// action-frequency vector, and compute EV per action.
 ///
@@ -280,7 +424,7 @@ fn aggregate_root_strategy_and_ev(
     game: &NlheSubgame,
     avg_strategy: &Strategy,
     roots: &[(SubgameState, f32)],
-) -> (Vec<(String, f32)>, Vec<(String, f32)>) {
+) -> (ActionWeights, ActionWeights) {
     // Establish the action set + labels from a representative root. All
     // roots share the same legal-actions list (root state: empty action
     // log, stacks + pot untouched — deterministic from subgame config).
