@@ -13,12 +13,14 @@
 
 pub mod cfr;
 pub mod cfr_flat;
+pub mod cfr_vector;
 pub mod convergence;
 pub mod game;
 pub mod matching;
 pub mod matching_simd;
 pub mod mccfr;
 pub mod tables;
+pub mod tables_vector;
 
 // Opt-in Metal GPU backend for regret matching. Only compiled when the
 // `metal` feature is on AND the target OS is macOS. See `src/metal/mod.rs`
@@ -31,11 +33,13 @@ pub use cfr::{CfrPlus, Strategy};
 pub use cfr_flat::{
     enumerate_info_sets, enumerate_info_sets_from_roots, CfrPlusFlat, InfoSetDescriptor,
 };
+pub use cfr_vector::{enumerate_vector_info_sets, CfrPlusVector, VectorGame};
 pub use convergence::{best_response_value, exploitability_two_player_zero_sum};
 pub use game::{Game, InfoSetId, Player};
 pub use matching::{regret_match, regret_match_vec};
-pub use matching_simd::regret_match_simd;
+pub use matching_simd::{regret_match_simd, regret_match_simd_vector};
 pub use tables::RegretTables;
+pub use tables_vector::{VectorCfrTables, VectorInfoSetDescriptor};
 
 /// Error type surfaced by the solver core.
 #[derive(Debug, thiserror::Error)]

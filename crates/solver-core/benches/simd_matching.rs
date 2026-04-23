@@ -53,7 +53,7 @@ use rand::{Rng, SeedableRng};
 use rand_xoshiro::Xoshiro256PlusPlus;
 
 use solver_core::matching::regret_match;
-use solver_core::regret_match_simd;
+use solver_core::{regret_match_simd, regret_match_simd_vector};
 
 /// Sizes covered. N=1326 is the NLHE-combo scale; everything else is
 /// diagnostic.
@@ -99,5 +99,32 @@ fn bench_simd(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(simd_benches, bench_scalar, bench_simd);
+/// Vector-CFR primitive at N=1326 with A=5 (the NLHE river shape) and
+/// A=2 (Kuhn shape). Measures how fast we can regret-match 8192 f32s
+/// (1326 × up-to-6 actions) as a single call.
+fn bench_simd_vector(c: &mut Criterion) {
+    // NLHE river shape: A=5, N=1326.
+    let mut group = c.benchmark_group("regret_matching_simd_vector");
+    for &(a, n) in &[(5usize, 1326usize), (3, 1326), (2, 1326), (5, 169)] {
+        let mut rng = Xoshiro256PlusPlus::from_seed([1; 32]);
+        let regrets: Vec<Vec<f32>> = (0..a)
+            .map(|_| (0..n).map(|_| rng.gen_range(-1.0f32..1.0)).collect())
+            .collect();
+        let mut out_buf: Vec<Vec<f32>> = (0..a).map(|_| vec![0.0f32; n]).collect();
+
+        group.throughput(Throughput::Elements((a * n) as u64));
+        let id = BenchmarkId::from_parameter(format!("a{}_n{}", a, n));
+        group.bench_with_input(id, &regrets, |b, regrets| {
+            let refs: Vec<&[f32]> = regrets.iter().map(|v| v.as_slice()).collect();
+            b.iter(|| {
+                let mut out_refs: Vec<&mut [f32]> =
+                    out_buf.iter_mut().map(|v| v.as_mut_slice()).collect();
+                regret_match_simd_vector(black_box(&refs), black_box(&mut out_refs));
+            });
+        });
+    }
+    group.finish();
+}
+
+criterion_group!(simd_benches, bench_scalar, bench_simd, bench_simd_vector);
 criterion_main!(simd_benches);
