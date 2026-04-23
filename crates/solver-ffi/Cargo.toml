@@ -1,0 +1,23 @@
+[package]
+name = "solver-ffi"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "C FFI surface for Swift consumption by Poker Panel"
+
+[lib]
+# staticlib for Swift Package Manager binary target
+# cdylib for dynamic loading if ever needed
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+solver-core = { workspace = true }
+solver-nlhe = { workspace = true }
+solver-eval = { workspace = true }
+bytemuck = { workspace = true }
+
+[build-dependencies]
+# TODO (Day 3, agent A6): add cbindgen = "0.26" once header is scoped.

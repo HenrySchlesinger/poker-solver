@@ -1,0 +1,14 @@
+[package]
+name = "solver-eval"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Card, hand evaluator, equity, isomorphism — pure poker primitives"
+
+[dependencies]
+bytemuck = { workspace = true }
+# TODO (Day 1, agent A2): add `rs-poker` or similar once evaluator choice is made.
+# Do NOT write a 5-card evaluator from scratch — it's a solved problem.

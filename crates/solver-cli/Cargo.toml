@@ -1,0 +1,21 @@
+[package]
+name = "solver-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Dev harness: solve spots, run validation, drive Colab precompute"
+
+[[bin]]
+name = "solver-cli"
+path = "src/main.rs"
+
+[dependencies]
+solver-core = { workspace = true }
+solver-nlhe = { workspace = true }
+solver-eval = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }

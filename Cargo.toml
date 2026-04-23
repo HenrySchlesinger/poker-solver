@@ -1,0 +1,56 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/solver-core",
+    "crates/solver-nlhe",
+    "crates/solver-eval",
+    "crates/solver-ffi",
+    "crates/solver-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Henry <millex53@gmail.com>"]
+license = "Proprietary"
+repository = "https://github.com/henryschlesinger/poker-solver"
+rust-version = "1.75"
+
+[workspace.dependencies]
+# internal
+solver-core = { path = "crates/solver-core" }
+solver-nlhe = { path = "crates/solver-nlhe" }
+solver-eval = { path = "crates/solver-eval" }
+solver-ffi  = { path = "crates/solver-ffi"  }
+
+# external
+anyhow = "1"
+thiserror = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rayon = "1.10"           # data-parallel iteration over info sets
+rand = "0.8"             # MCCFR sampling
+rand_xoshiro = "0.6"     # fast deterministic PRNG for benchmarks
+smallvec = "1"           # small-stack action sets
+bytemuck = "1"           # packed-struct casts
+clap = { version = "4", features = ["derive"] }
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+debug = false
+overflow-checks = false
+
+[profile.bench]
+inherits = "release"
+debug = true             # keep symbols for `cargo flamegraph`
+
+# Fast-iteration dev build. Debug assertions on, but optimization kept high
+# enough that solver iterations are not miserable to wait for.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3            # deps always optimized; only workspace is opt-level=1

@@ -1,0 +1,19 @@
+[package]
+name = "solver-nlhe"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "NLHE game tree, ranges, bet-tree abstraction"
+
+[dependencies]
+solver-core = { workspace = true }
+solver-eval = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+smallvec = { workspace = true }
+bytemuck = { workspace = true }

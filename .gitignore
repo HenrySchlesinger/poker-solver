@@ -1,0 +1,31 @@
+# Rust build
+target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# OS
+.DS_Store
+*.swp
+
+# Precomputed artifacts — do NOT commit these; they're generated
+# offline (locally or on Colab) and distributed separately.
+data/preflop-ranges/*.bin
+data/preflop-ranges/*.json
+data/iso-tables/*.bin
+data/flop-cache/*.bin
+data/flop-cache/*.json
+!data/**/.gitkeep
+!data/**/README.md
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Bench output
+criterion/
+flamegraph.svg
+perf.data*
+
+# Colab
+colab/**/*.ipynb_checkpoints/

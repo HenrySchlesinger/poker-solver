@@ -1,0 +1,28 @@
+[package]
+name = "solver-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Game-agnostic CFR+/MCCFR/Vector CFR solver core"
+
+[dependencies]
+rayon = { workspace = true }
+rand = { workspace = true }
+rand_xoshiro = { workspace = true }
+smallvec = { workspace = true }
+bytemuck = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "river"
+harness = false
+
+[[bench]]
+name = "regret_matching"
+harness = false
