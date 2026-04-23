@@ -1,0 +1,52 @@
+{
+  "commit": "7d6556e835d2f3e4ed229c03fdd060948f3ded70",
+  "commit_short": "7d6556e",
+  "date_utc": "2026-04-23T18:23:35Z",
+  "hardware": "M-series Mac (Henry's laptop)",
+  "agent": "A70",
+  "rust_toolchain": "1.85.0-aarch64-apple-darwin",
+  "profile": "bench (optimized + debuginfo)",
+  "notes": "v0.2 Vector CFR integration: `CfrPlusVector` wired as default in solver-cli (`--solver vector`) and solver-ffi. Action-only tree walk carrying 1326-wide combo reach vectors; showdown-matrix matmul vectorized with wide::f32x8. Canonical river spot drops from 434.65 ms @ 100 iters (A64 flat) to 40.70 ms @ 100 iters (vector) — ~10.7x speedup. Wet-board: 589.27 ms -> 41.81 ms (~14.1x). Degenerate (1-combo vs 1-combo): 268 us @ 1000 iters (A64 flat) -> 13.02 ms @ 1000 iters (vector); vector has a higher per-iter floor because it always walks 1326-wide vectors even for trivial spots, but still well under the 50 ms target. Extrapolated to 1000 iters: canonical ~407 ms (under the 1 s hard limit, over the 300 ms ideal target by ~107 ms). Scalar `CfrPlusFlat` path still green (unchanged trajectory; the `_flat` bench shows 467 ms @ 100 iters, within noise of A64's 434 ms snapshot). Kuhn three-way convergence test (scalar vs flat vs vector) passes with the 3-way trajectory-compatible tolerance spec: scalar and flat stay bit-identical (1e-6); vector converges to the same Nash EV within 0.01 of -1/18 and per-entry strategies within 0.05 of scalar. NLHE river canonical tests + differential test (`river_vector_vs_flat`) pass. Workspace-wide `cargo test --release` green. Remaining gap to 300 ms target (~107 ms on canonical) would need M6 (rayon parallelism across the chance-layer roots — though in the vector formulation 'chance roots' has become a single batched walk, so rayon would parallelize sub-trees or combo shards instead). Next steps: v0.2 Workstream B (root-aware exploitability) and C (Colab flop-cache population) run in parallel; further perf work on vector is a v0.2 stretch.",
+  "benches": {
+    "river_canonical_spot": {
+      "mean_ns": 40698000.0,
+      "unit": "ns",
+      "ci_low_ns": 40571000.0,
+      "ci_high_ns": 40729000.0,
+      "mean_display": "40.70 ms",
+      "iterations_per_sample": 100,
+      "change_vs_baseline_pct": -90.64,
+      "notes": "AhKhQh2d4s, hero AA/KK/AKs, villain 22+/AJs+/KQs, pot 100, stack 500. ~0.41 ms/CFR+ iter (was 4.35 ms/iter A64). 10.7x speedup. Extrapolates to ~407 ms @ 1000 iters — over the 300 ms target, under the 1 s hard limit."
+    },
+    "river_degenerate_spot": {
+      "mean_ns": 13018000.0,
+      "unit": "ns",
+      "ci_low_ns": 13006000.0,
+      "ci_high_ns": 13063000.0,
+      "mean_display": "13.02 ms",
+      "iterations_per_sample": 1000,
+      "change_vs_baseline_pct": 4755.0,
+      "notes": "2c7d9hTsJs, hero AhKh vs villain AsAd, pot 1000, stack 0. Trivial 1-combo-vs-1-combo spot. Vector walks 1326-wide vectors even for a 1-combo case, so per-iter floor is higher than the scalar 268 us baseline. 49x slower than A64 on this spot specifically. Still 3.84x under the 50 ms target. Acceptable regression on a trivial path in exchange for the 10x+ gain on real river spots."
+    },
+    "river_wet_board": {
+      "mean_ns": 41812000.0,
+      "unit": "ns",
+      "ci_low_ns": 41693000.0,
+      "ci_high_ns": 41842000.0,
+      "mean_display": "41.81 ms",
+      "iterations_per_sample": 100,
+      "change_vs_baseline_pct": -92.90,
+      "notes": "JhTh9c8h7s, hero AA/AKs/QTs, villain 22+/AQs+, pot 100, stack 500. 14.1x speedup vs A64's 589.27 ms. Extrapolates to ~418 ms @ 1000 iters — under the 500 ms target."
+    },
+    "river_canonical_spot_flat": {
+      "mean_ns": 467380000.0,
+      "unit": "ns",
+      "ci_low_ns": 465600000.0,
+      "ci_high_ns": 474500000.0,
+      "mean_display": "467.38 ms",
+      "iterations_per_sample": 100,
+      "change_vs_baseline_pct": 7.53,
+      "notes": "Same spot as `river_canonical_spot`, but driven by `CfrPlusFlat` (A64 default). Kept in the bench suite as a regression guard on the scalar path — the vector-CFR landing should not have regressed the flat solver. 467 ms is within hardware-noise of A64's 434.65 ms snapshot (single-run captures drift 5-10%)."
+    }
+  }
+}
