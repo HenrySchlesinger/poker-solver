@@ -212,9 +212,13 @@ pub struct CfrPlusVector<G: VectorGame> {
     /// - `strategy_buf[d]`: `max_actions` rows of `combo_width` floats
     ///   for the per-combo regret-matched strategy.
     /// - `action_utils_buf[d]`: `max_actions` rows of `combo_width`.
-    /// - `node_util_buf[d]`: `combo_width` floats.
     /// - `next_hero_reach_buf[d]`, `next_villain_reach_buf[d]`:
     ///   `combo_width` each.
+    ///
+    /// Node utility is no longer scratch: A76 fuses the node-util
+    /// aggregation into a post-walk SIMD sweep that writes directly to
+    /// the caller-owned `out_util` slice, so the intermediate buffer
+    /// went away along with its zero-fill and copy-to-out.
     scratch: ScratchPool,
     /// Maximum action count (stride of the `strategy_buf` /
     /// `action_utils_buf` sub-tables per depth).
@@ -229,8 +233,6 @@ struct ScratchPool {
     strategy: Vec<Vec<f32>>,
     /// `action_utils[d * max_actions + a]` — `combo_width` floats.
     action_utils: Vec<Vec<f32>>,
-    /// `node_util[d]` — `combo_width` floats.
-    node_util: Vec<Vec<f32>>,
     /// `next_hero_reach[d]` — `combo_width` floats.
     next_hero_reach: Vec<Vec<f32>>,
     /// `next_villain_reach[d]` — `combo_width` floats.
@@ -249,7 +251,6 @@ impl ScratchPool {
         Self {
             strategy: Vec::new(),
             action_utils: Vec::new(),
-            node_util: Vec::new(),
             next_hero_reach: Vec::new(),
             next_villain_reach: Vec::new(),
             root_reach_hero: vec![0.0f32; combo_width],
@@ -262,8 +263,7 @@ impl ScratchPool {
 
     /// Ensure depth `d` has scratch. Grows on demand. Idempotent.
     fn ensure_depth(&mut self, d: usize) {
-        while self.node_util.len() <= d {
-            self.node_util.push(vec![0.0f32; self.combo_width]);
+        while self.next_hero_reach.len() <= d {
             self.next_hero_reach.push(vec![0.0f32; self.combo_width]);
             self.next_villain_reach.push(vec![0.0f32; self.combo_width]);
             for _ in 0..self.max_actions {
@@ -432,13 +432,13 @@ impl<G: VectorGame> CfrPlusVector<G> {
             strategy_take.push(std::mem::take(&mut self.scratch.strategy[strat_base + i]));
             au_take.push(std::mem::take(&mut self.scratch.action_utils[au_base + i]));
         }
-        let mut node_util_take = std::mem::take(&mut self.scratch.node_util[depth]);
         let mut next_hero_take = std::mem::take(&mut self.scratch.next_hero_reach[depth]);
         let mut next_villain_take = std::mem::take(&mut self.scratch.next_villain_reach[depth]);
 
-        for slot in node_util_take.iter_mut() {
-            *slot = 0.0;
-        }
+        // A76 (A73 rec #3): node_util aggregation is fused into a single
+        // SIMD sweep after the per-action walks, writing directly to
+        // `out_util`. No pre-zero needed — the fused pass writes every
+        // lane exactly once.
 
         for (i, action) in actions.iter().enumerate() {
             let next = self.game.apply(state, action);
@@ -507,51 +507,70 @@ impl<G: VectorGame> CfrPlusVector<G> {
                     );
                 }
             }
+        }
 
-            // node_util aggregation: see module docs.
-            let au = &au_take[i];
+        // A76 (A73 rec #3): fused node_util aggregation.
+        //
+        // A74's per-action aggregation zeroed `node_util`, then did
+        // `node_util[c] += ...` inside the action loop (read+write each
+        // pass), then `out_util.copy_from_slice(&node_util)`. The
+        // fused form below keeps the sum in a SIMD register across the
+        // action loop and writes `out_util` once per combo chunk.
+        //
+        // Summation order is identical to A74 (action-major,
+        // left-associative accumulation starting from 0), so each
+        // output lane is bit-for-bit equal to the pre-fusion code.
+        //
+        // The branch on `current == update_player` is hoisted out of
+        // the chunk loop — `current` is fixed for a given node.
+        {
+            let chunks = cw / 8;
+            let tail_start = chunks * 8;
             if current == update_player {
-                // SIMD: node_util_take[c] += p[c] * au[c]
-                // A73 profile: line 480 was 13.7 % of walk self-time.
-                let chunks = cw / 8;
-                let tail_start = chunks * 8;
+                // out_util[c] = Σ_i strategy[i][c] * action_util[i][c]
                 for ch in 0..chunks {
                     let base = ch * 8;
-                    let nu_slice: [f32; 8] = node_util_take[base..base + 8].try_into().unwrap();
-                    let p_slice: [f32; 8] = p[base..base + 8].try_into().unwrap();
-                    let au_slice: [f32; 8] = au[base..base + 8].try_into().unwrap();
-                    let nu_v = f32x8::from(nu_slice);
-                    let p_v = f32x8::from(p_slice);
-                    let au_v = f32x8::from(au_slice);
-                    let result = nu_v + p_v * au_v;
-                    let arr: [f32; 8] = result.into();
-                    node_util_take[base..base + 8].copy_from_slice(&arr);
+                    let mut sum_v = f32x8::splat(0.0);
+                    for i in 0..num_actions {
+                        let p_slice: [f32; 8] =
+                            strategy_take[i][base..base + 8].try_into().unwrap();
+                        let au_slice: [f32; 8] = au_take[i][base..base + 8].try_into().unwrap();
+                        let p_v = f32x8::from(p_slice);
+                        let au_v = f32x8::from(au_slice);
+                        sum_v += p_v * au_v;
+                    }
+                    let arr: [f32; 8] = sum_v.into();
+                    out_util[base..base + 8].copy_from_slice(&arr);
                 }
                 for c in tail_start..cw {
-                    node_util_take[c] += p[c] * au[c];
+                    let mut sum = 0.0f32;
+                    for i in 0..num_actions {
+                        sum += strategy_take[i][c] * au_take[i][c];
+                    }
+                    out_util[c] = sum;
                 }
             } else {
-                // SIMD: node_util_take[c] += au[c]
-                // A73 profile: line 484 was 9.2 % of walk self-time.
-                let chunks = cw / 8;
-                let tail_start = chunks * 8;
+                // out_util[c] = Σ_i action_util[i][c]
                 for ch in 0..chunks {
                     let base = ch * 8;
-                    let nu_slice: [f32; 8] = node_util_take[base..base + 8].try_into().unwrap();
-                    let au_slice: [f32; 8] = au[base..base + 8].try_into().unwrap();
-                    let nu_v = f32x8::from(nu_slice);
-                    let au_v = f32x8::from(au_slice);
-                    let result = nu_v + au_v;
-                    let arr: [f32; 8] = result.into();
-                    node_util_take[base..base + 8].copy_from_slice(&arr);
+                    let mut sum_v = f32x8::splat(0.0);
+                    for i in 0..num_actions {
+                        let au_slice: [f32; 8] = au_take[i][base..base + 8].try_into().unwrap();
+                        let au_v = f32x8::from(au_slice);
+                        sum_v += au_v;
+                    }
+                    let arr: [f32; 8] = sum_v.into();
+                    out_util[base..base + 8].copy_from_slice(&arr);
                 }
                 for c in tail_start..cw {
-                    node_util_take[c] += au[c];
+                    let mut sum = 0.0f32;
+                    for i in 0..num_actions {
+                        sum += au_take[i][c];
+                    }
+                    out_util[c] = sum;
                 }
             }
         }
-
-        out_util.copy_from_slice(&node_util_take);
 
         // Regret + strategy_sum updates at update_player's own nodes.
         if current == update_player {
@@ -571,11 +590,12 @@ impl<G: VectorGame> CfrPlusVector<G> {
                 // A73 profile: lines 503-504 were 9.6 % of walk self-time.
                 // Branchless clamp via mask-and-blend to match the scalar
                 // semantics bit-for-bit on NaN (NaN > 0 is false, contributes 0).
+                // A76: `node_util` lives in `out_util` now (fused write).
                 for ch in 0..chunks {
                     let base = ch * 8;
                     let row_slice: [f32; 8] = row[base..base + 8].try_into().unwrap();
                     let au_slice: [f32; 8] = au[base..base + 8].try_into().unwrap();
-                    let nu_slice: [f32; 8] = node_util_take[base..base + 8].try_into().unwrap();
+                    let nu_slice: [f32; 8] = out_util[base..base + 8].try_into().unwrap();
                     let row_v = f32x8::from(row_slice);
                     let au_v = f32x8::from(au_slice);
                     let nu_v = f32x8::from(nu_slice);
@@ -587,7 +607,7 @@ impl<G: VectorGame> CfrPlusVector<G> {
                     row[base..base + 8].copy_from_slice(&arr);
                 }
                 for c in tail_start..cw {
-                    let raw = row[c] + (au[c] - node_util_take[c]);
+                    let raw = row[c] + (au[c] - out_util[c]);
                     row[c] = if raw > 0.0 { raw } else { 0.0 };
                 }
             }
@@ -616,7 +636,6 @@ impl<G: VectorGame> CfrPlusVector<G> {
         }
 
         // Put scratch back so the next call at this depth can reuse.
-        self.scratch.node_util[depth] = node_util_take;
         self.scratch.next_hero_reach[depth] = next_hero_take;
         self.scratch.next_villain_reach[depth] = next_villain_take;
         for (i, v) in au_take.into_iter().enumerate() {
