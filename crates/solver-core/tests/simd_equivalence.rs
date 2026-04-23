@@ -96,7 +96,9 @@ fn boundary_lengths() {
     let mut rng = Xoshiro256PlusPlus::from_seed([42u8; 32]);
     // 1..=9 hits the <8 scalar fallback and the 8-wide+tail boundary.
     // 15, 16, 17 hits two f32x8 blocks. 1326 is NLHE scale.
-    let lengths = [1, 2, 3, 7, 8, 9, 15, 16, 17, 23, 24, 25, 169, 1000, 1326, 2000];
+    let lengths = [
+        1, 2, 3, 7, 8, 9, 15, 16, 17, 23, 24, 25, 169, 1000, 1326, 2000,
+    ];
     for n in lengths {
         // Try a few different seeded inputs at each length to cover sign mixes.
         for _ in 0..16 {
@@ -118,7 +120,9 @@ fn all_zeros_is_uniform() {
 fn all_negative_is_uniform() {
     let mut rng = Xoshiro256PlusPlus::from_seed([99u8; 32]);
     for n in [1usize, 3, 7, 8, 9, 16, 169, 1326] {
-        let regrets: Vec<f32> = (0..n).map(|_| rng.gen_range(-100.0f32..-0.001f32)).collect();
+        let regrets: Vec<f32> = (0..n)
+            .map(|_| rng.gen_range(-100.0f32..-0.001f32))
+            .collect();
         assert_equivalent(&regrets);
     }
 }
