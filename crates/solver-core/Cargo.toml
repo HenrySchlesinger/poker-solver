@@ -8,6 +8,13 @@ repository.workspace = true
 rust-version.workspace = true
 description = "Game-agnostic CFR+/MCCFR/Vector CFR solver core"
 
+[features]
+# Opt-in Metal GPU matching kernel. Disabled by default: the host build
+# only ships the portable-SIMD path, and `build.rs` always writes a stub
+# .metallib so `include_bytes!` still resolves when the feature is off.
+# Turn on with `--features metal` once the shader + dispatch code land.
+metal = []
+
 [dependencies]
 rayon = { workspace = true }
 rand = { workspace = true }

@@ -192,5 +192,5 @@ fn emit_empty_metallib() {
     // Ignore write failures — if the filesystem is read-only we have
     // bigger problems than missing shader compilation. The Rust code
     // still guards the include_bytes! behind the cfg flag below.
-    let _ = std::fs::write(&metallib_path, &[]);
+    let _ = std::fs::write(&metallib_path, []);
 }
