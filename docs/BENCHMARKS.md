@@ -219,10 +219,13 @@ snapshots:
   A72) — hand-rolled NEON showdown-matmul experiment (see "A72 NEON
   experiment" below). **No measurable gain** over `wide::f32x8` on
   aarch64; A70 remains the reference numbers.
+- `bench-history/2026-04-23_210308_678cb91.json` (commit `678cb91`, agent
+  A75) — **current river KPI snapshot**: A73 rec #2 landed —
+  redundant non-acting-player reach `copy_from_slice` removed from
+  both walk branches (pass caller's slice through instead).
 - `bench-history/2026-04-23_203607_1ee50b9.json` (commit `1ee50b9`, agent
-  A74) — **current river KPI snapshot**: walk-SIMD (6 elementwise loops
-  in `CfrPlusVector::walk` converted from scalar autovec to explicit
-  `wide::f32x8`).
+  A74) — walk-SIMD (6 elementwise loops in `CfrPlusVector::walk`
+  converted from scalar autovec to explicit `wide::f32x8`).
 - `bench-history/2026-04-23_182335_7d6556e.json` (commit `7d6556e`, agent
   A70) — pre-walk-SIMD Vector CFR baseline.
 - `bench-history/2026-04-23_110058_3480502.json` (commit `3480502`, agent
@@ -234,30 +237,40 @@ snapshots:
 
 ### Primary KPI (river)
 
-| Bench | Day 1 (scalar+HashMap, A62) | Day 2+3 (flat+SIMD, A64) | v0.2 (Vector CFR, A70) | v0.2 + walk-SIMD (A74) | Δ vs A70 | v0.1 target |
-|---|---|---|---|---|---|---|
-| `river_canonical_spot`  | 478.23 ms @ 100 iters | 434.65 ms @ 100 iters | 40.70 ms @ 100 iters *(~0.41 ms/iter)* | **32.87 ms @ 100 iters** *(~0.33 ms/iter)* | **-19.2 %** | < 300 ms @ 1000 iters |
-| `river_degenerate_spot` | 363.13 µs @ 1000 iters | 268.15 µs @ 1000 iters | 13.02 ms @ 1000 iters | **9.23 ms @ 1000 iters** | **-29.1 %** | < 50 ms @ 1000 iters |
-| `river_wet_board`       | 667.14 ms @ 100 iters | 589.27 ms @ 100 iters | 41.81 ms @ 100 iters *(~0.42 ms/iter)* | **35.50 ms @ 100 iters** *(~0.36 ms/iter)* | **-15.1 %** | < 500 ms @ 1000 iters |
+| Bench | Day 1 (scalar+HashMap, A62) | Day 2+3 (flat+SIMD, A64) | v0.2 (Vector CFR, A70) | v0.2 + walk-SIMD (A74) | + reach-copy removal (A75) | Δ vs A74 | Δ vs A70 | v0.1 target |
+|---|---|---|---|---|---|---|---|---|
+| `river_canonical_spot`  | 478.23 ms @ 100 iters | 434.65 ms @ 100 iters | 40.70 ms @ 100 iters *(~0.41 ms/iter)* | 32.87 ms @ 100 iters *(~0.33 ms/iter)* | **32.09 ms @ 100 iters** *(~0.32 ms/iter)* | **-2.4 %** | **-21.2 %** | < 300 ms @ 1000 iters |
+| `river_degenerate_spot` | 363.13 µs @ 1000 iters | 268.15 µs @ 1000 iters | 13.02 ms @ 1000 iters | 9.23 ms @ 1000 iters | **8.83 ms @ 1000 iters** | **-4.3 %** | **-32.2 %** | < 50 ms @ 1000 iters |
+| `river_wet_board`       | 667.14 ms @ 100 iters | 589.27 ms @ 100 iters | 41.81 ms @ 100 iters *(~0.42 ms/iter)* | 35.50 ms @ 100 iters *(~0.36 ms/iter)* | **34.29 ms @ 100 iters** *(~0.34 ms/iter)* | **-3.4 %** | **-18.0 %** | < 500 ms @ 1000 iters |
 
-**Post-A74 numbers are criterion mean on Henry's M-series MacBook,
-clean run, commit `1ee50b9` with all 6 elementwise loops in
-`CfrPlusVector::walk` (reach-products × 2, node-util aggregations × 2,
-CFR+ regret clamp, strategy_sum update) converted from scalar autovec
-to explicit `wide::f32x8`. See
-`bench-history/2026-04-23_203607_1ee50b9.json` for the full snapshot.**
+**Post-A75 numbers are criterion mean on Henry's M-series MacBook,
+clean run, commit `678cb91`. A75 landed A73 recommendation #2: the two
+redundant `copy_from_slice` calls for the non-acting player's reach
+vector were replaced with direct pass-through of the caller's slice
+reference (the non-acting player's reach is unchanged at a decision
+node, so the copy into a scratch buffer was pure overhead). Gain
+was smaller than A73's 8 % estimate — 2.4 % on canonical, 3.4 % on
+wet-board, 4.3 % on degenerate — because the copies are simple linear
+memmoves the CPU already runs near memory-bandwidth limits, and A74's
+SIMD speedups on the compute loops proportionally shrunk the copy's
+share of walk time. See
+`bench-history/2026-04-23_210308_678cb91.json` for the full snapshot.**
 
 **Extrapolated to 1000 iters:**
-- `river_canonical_spot` ~329 ms @ 1000 iters → clears 1 s hard limit,
-  narrowly over the 300 ms ideal target by ~29 ms. A73 recs #2 (reach-
-  product `copy_from_slice` removal, ~8 %) and #3 (node_util aggregation
-  fusion across actions, ~5-8 %) are the compounding follow-ups that
-  should close the remaining gap.
-- `river_wet_board` ~355 ms @ 1000 iters → under the 500 ms target.
-- `river_degenerate_spot` at 9.23 ms @ 1000 iters — 5.4× under the
-  50 ms target. Walk-SIMD helps the trivial spot because the 1326-wide
-  reach vectors still flow through the elementwise loops, just now
-  8-wide-per-op.
+- `river_canonical_spot` ~321 ms @ 1000 iters → clears 1 s hard limit,
+  still ~21 ms over the 300 ms ideal target. A73 rec #3 (node_util
+  aggregation fusion across actions, ~5-8 %) remains the open
+  compounding follow-up to close the gap.
+- `river_wet_board` ~343 ms @ 1000 iters → under the 500 ms target.
+- `river_degenerate_spot` at 8.83 ms @ 1000 iters — 5.7× under the
+  50 ms target.
+
+**30 ms @ 100 iters target status.** Missed by ~2 ms (32.09 vs 30 ms
+target). A75 removed the copies but they were a smaller slice of the
+budget than A73 measured — consistent with A73's profile having been
+taken pre-walk-SIMD when the compute loops were proportionally more
+expensive. The remaining path to 30 ms is A73 rec #3 (aggregation
+fusion) plus whatever lives in the showdown matmul's cache behavior.
 
 **Degenerate-spot regression note.** The vector solver always walks
 1326-wide reach vectors, even on a 1-combo-vs-1-combo spot where

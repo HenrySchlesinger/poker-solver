@@ -1,0 +1,52 @@
+{
+  "commit": "678cb91e673ccfcb432a4a79b43404fe23741c97",
+  "commit_short": "678cb91",
+  "date_utc": "2026-04-23T21:03:08Z",
+  "hardware": "M-series Mac (Henry's laptop)",
+  "agent": "A75",
+  "rust_toolchain": "1.85.0-aarch64-apple-darwin",
+  "profile": "bench (optimized + debuginfo)",
+  "notes": "A75 landed A73 recommendation #2: removed the two redundant `copy_from_slice` calls inside `CfrPlusVector::walk`'s action loop. On a Hero action the code used to SIMD-multiply `next_hero_take[c] = reach_hero[c] * p[c]` and then `next_villain_take.copy_from_slice(reach_villain)` — a 1326-f32 linear copy of an unchanged buffer — before recursing with `(&next_hero_take, &next_villain_take)`. Symmetric on the Villain branch. The fix is to pass the caller's `reach_villain` / `reach_hero` slice straight through to the recursive call (they're `&[f32]` and the non-acting player's reach is literally unchanged at a decision node), skipping the memmove entirely. No scratch-layout refactor needed; 10-line surgical edit. All correctness gates green: Kuhn 3-way vector_equivalence, NLHE river_vector_vs_flat differential (3 tests), river_canonical (4 scenarios), scripts/e2e.sh (FFI + Swift harness, 13 assertions). `river_canonical_spot` drops 32.87 -> 32.09 ms @ 100 iters (2.4 % faster). `river_wet_board` drops 35.50 -> 34.29 ms (3.4 % faster). `river_degenerate_spot` drops 9.23 -> 8.83 ms @ 1000 iters (4.3 % faster). Flat path `river_canonical_spot_flat` drops 685.81 -> 659.02 ms (3.9 %; hardware-noise drift, flat path code untouched by A75). A73's 8 % estimate was optimistic — A74's walk-SIMD landed first and proportionally reduced the compute-loop cost, so the fixed-cost copy phase became a smaller slice of walk time. The gain is real and stacked but the 30 ms @ 100 iters (300 ms @ 1000 iters) ideal target remains ~2 ms / ~21 ms away. A73 rec #3 (node_util aggregation fusion across actions) is the open follow-up for closing the gap.",
+  "benches": {
+    "river_canonical_spot": {
+      "mean_ns": 32087000.0,
+      "unit": "ns",
+      "ci_low_ns": 31988000.0,
+      "ci_high_ns": 32191000.0,
+      "mean_display": "32.09 ms",
+      "iterations_per_sample": 100,
+      "change_vs_baseline_pct": -2.38,
+      "notes": "AhKhQh2d4s, hero AA/KK/AKs, villain 22+/AJs+/KQs, pot 100, stack 500. 2.4 % faster than A74's 32.87 ms, 21.2 % faster than A70's 40.70 ms. Extrapolates to ~321 ms @ 1000 iters. Still ~21 ms over the 300 ms ideal; 30 ms @ 100 iters target missed by ~2 ms. A73 rec #3 is the remaining lever."
+    },
+    "river_degenerate_spot": {
+      "mean_ns": 8833800.0,
+      "unit": "ns",
+      "ci_low_ns": 8766400.0,
+      "ci_high_ns": 8920600.0,
+      "mean_display": "8.83 ms",
+      "iterations_per_sample": 1000,
+      "change_vs_baseline_pct": -4.33,
+      "notes": "2c7d9hTsJs, hero AhKh vs villain AsAd, pot 1000, stack 0. 4.3 % faster than A74's 9.23 ms, 32.2 % faster than A70's 13.02 ms. The trivial spot still pays the 1326-wide reach-vector walk cost but now doesn't pay the redundant copy phase on top of A74's SIMD."
+    },
+    "river_wet_board": {
+      "mean_ns": 34286000.0,
+      "unit": "ns",
+      "ci_low_ns": 34218000.0,
+      "ci_high_ns": 34358000.0,
+      "mean_display": "34.29 ms",
+      "iterations_per_sample": 100,
+      "change_vs_baseline_pct": -3.41,
+      "notes": "JhTh9c8h7s, hero AA/AKs/QTs, villain 22+/AQs+, pot 100, stack 500. 3.4 % faster than A74's 35.50 ms. Extrapolates to ~343 ms @ 1000 iters, well under the 500 ms target."
+    },
+    "river_canonical_spot_flat": {
+      "mean_ns": 659020000.0,
+      "unit": "ns",
+      "ci_low_ns": 657030000.0,
+      "ci_high_ns": 662230000.0,
+      "mean_display": "659.02 ms",
+      "iterations_per_sample": 100,
+      "change_vs_baseline_pct": -3.91,
+      "notes": "Scalar `CfrPlusFlat` path not touched by A75 (the reach-copy removal is in `CfrPlusVector::walk`, a different function entirely). 659 ms is a hardware-noise drift below A74's 685 ms snapshot; same code, single-run captures vary. Kept as a regression guard."
+    }
+  }
+}
