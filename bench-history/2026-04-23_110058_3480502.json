@@ -1,0 +1,15 @@
+{
+  "commit": "34805021f11497ecb0457ffeead9b2b057b07669",
+  "commit_short": "3480502",
+  "date_utc": "2026-04-23T11:00:58Z",
+  "hardware": "M-series Mac (Henry's laptop)",
+  "agent": "A64",
+  "rust_toolchain": "1.85.0-aarch64-apple-darwin",
+  "profile": "bench (optimized + debuginfo)",
+  "notes": "First post-integration snapshot: `benches/river.rs` now drives `CfrPlusFlat` (flat `RegretTables` + `regret_match_simd`) instead of the HashMap-backed `CfrPlus`. A64 also wired `CfrPlusFlat` as the default in `solver-cli solve` (with `--solver flat|classic` flag, default `flat`) and in `solver-ffi::solver_solve`. Flat-array layout delivered 9-26% gains across the three river benches; SIMD was a no-op on the NLHE inner loop because every river info set has ≤5 actions, below the `SIMD_THRESHOLD=8` guard in `matching_simd.rs` — `regret_match_simd` short-circuits to scalar for those sizes. Expected 3-9× missed; real gains 9-26%. `HEAVY_ITERATIONS` stayed at 100 because the 1000-iter target (< 300 ms canonical) still requires v0.2 work (vector-CFR layout so SIMD can bite at N=1326, or rayon tree-walk parallelism). Kuhn 10k-iter `CfrPlusFlat` vs `CfrPlus` equivalence still passes at 1e-6. Clean run, no concurrent cargo processes. Full analysis in `docs/BENCHMARKS.md` under \"Why the jump is smaller than expected\".",
+  "benches": {
+    "river_canonical_spot":  {"mean_ns": 434650000.0, "unit": "ns", "ci_low_ns": 433580000.0, "ci_high_ns": 435730000.0, "mean_display": "434.65 ms", "iterations_per_sample": 100, "change_vs_baseline_pct": -9.11, "notes": "AhKhQh2d4s, hero AA/KK/AKs, villain 22+/AJs+/KQs, pot 100, stack 500. ~4.35 ms/CFR+ iter post-flat+SIMD (was 4.78 ms pre-A64). Criterion: p=0.00, performance improved."},
+    "river_degenerate_spot": {"mean_ns": 268150.0,    "unit": "ns", "ci_low_ns": 266870.0,    "ci_high_ns": 269530.0,    "mean_display": "268.15 µs", "iterations_per_sample": 1000, "change_vs_baseline_pct": -26.16, "notes": "2c7d9hTsJs, hero AhKh vs villain AsAd, pot 1000, stack 0. Tree collapses to Check/Check → showdown. 186x under 50 ms target. Criterion: p=0.00, performance improved."},
+    "river_wet_board":       {"mean_ns": 589270000.0, "unit": "ns", "ci_low_ns": 588200000.0, "ci_high_ns": 590330000.0, "mean_display": "589.27 ms", "iterations_per_sample": 100, "change_vs_baseline_pct": -11.67, "notes": "JhTh9c8h7s, hero AA/AKs/QTs, villain 22+/AQs+, pot 100, stack 500. ~5.89 ms/CFR+ iter post-flat+SIMD (was 6.67 ms pre-A64). Wet four-to-a-flush + straight texture. Criterion: p=0.00, performance improved."}
+  }
+}

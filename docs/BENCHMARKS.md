@@ -84,6 +84,9 @@ note). Measures wall-clock time.
 **Target: < 300 ms on M1 Pro at 1000 iterations. Hard limit: < 1 s.**
 
 **Day 1 (scalar) baseline: 478 ms @ 100 iters** (2026-04-23, A62).
+**Day 2+3 (flat + SIMD): 434.65 ms @ 100 iters** (2026-04-23, A64). See
+the primary KPI table for the full post-A64 numbers and the
+"Why the jump is smaller than expected" analysis.
 
 ```
 cargo bench -p solver-core -- river_canonical_spot
@@ -101,6 +104,8 @@ iteration).
 
 **Day 1 (scalar) baseline: 363 µs @ 1000 iters** (2026-04-23, A62) —
 137× under target.
+**Day 2+3 (flat + SIMD): 268.15 µs @ 1000 iters** (2026-04-23, A64) —
+186× under target.
 
 ### `river_wet_board`
 Wet/drawy board `JhTh9c8h7s` (four-to-a-flush + straight texture), hero
@@ -112,6 +117,8 @@ complexity, more nodes. Stress test for the node count. Currently
 
 **Day 1 (scalar) baseline: 667 ms @ 100 iters** (2026-04-23, A62) —
 ~6.67 ms/iter, extrapolates to ~6.67 s at 1000 iters pre-SIMD.
+**Day 2+3 (flat + SIMD): 589.27 ms @ 100 iters** (2026-04-23, A64) —
+~5.89 ms/iter, still extrapolates to ~5.89 s at 1000 iters.
 
 ### `regret_matching_scalar/{3, 8, 26, 169, 1326}`
 Microbench group in `benches/regret_matching.rs`. Runs the scalar
@@ -205,37 +212,90 @@ and Day-4 columns get filled in as those optimizations land.
 
 The "Day 1 (scalar, baseline)" numbers below are the most recent committed
 baseline run. The append-only source of truth lives in
-[`bench-history/`](../bench-history/) — one dated JSON per run. The current
-snapshot is `bench-history/2026-04-23_094257_8e26e00.json` (commit
-`8e26e00`, agent A55).
+[`bench-history/`](../bench-history/) — one dated JSON per run. Recent
+snapshots:
+
+- `bench-history/2026-04-23_110058_3480502.json` (commit `3480502`, agent
+  A64) — **current river KPI snapshot**: post-flat+SIMD integration.
+- `bench-history/2026-04-23_105049_d8505fa.json` (commit `d8505fa`, agent
+  A62) — river KPI pre-flat+SIMD baseline.
+- `bench-history/2026-04-23_094257_8e26e00.json` (commit `8e26e00`, agent
+  A55) — `regret_matching_scalar` + `cfr_plus_kuhn` scalar baseline.
 
 ### Primary KPI (river)
 
-| Bench | Day 1 (scalar, baseline) | Day 2 (flat tables) | Day 3 (SIMD+rayon) | Day 4 (Metal, if built) | v0.1 target |
+| Bench | Day 1 (scalar+HashMap, A62) | Day 2+3 (flat+SIMD, A64) | Δ vs Day 1 | Day 4 (Metal, if built) | v0.1 target |
 |---|---|---|---|---|---|
-| `river_canonical_spot`  | **478.23 ms @ 100 iters** *(~4.78 ms/iter; see iteration-count note below)* | TBD | TBD | N/A (Metal slower at N=1326 — see SIMD vs Metal section below) | < 300 ms @ 1000 iters |
-| `river_degenerate_spot` | **363.13 µs @ 1000 iters** *(137× under target)* | TBD | TBD | N/A (same reason) | < 50 ms @ 1000 iters |
-| `river_wet_board`       | **667.14 ms @ 100 iters** *(~6.67 ms/iter; see iteration-count note below)* | TBD | TBD | N/A (same reason) | < 500 ms @ 1000 iters |
+| `river_canonical_spot`  | **478.23 ms @ 100 iters** *(~4.78 ms/iter)* | **434.65 ms @ 100 iters** *(~4.35 ms/iter)* | **-9.1 %** | N/A (Metal slower at N≤1326 — see SIMD vs Metal section below) | < 300 ms @ 1000 iters |
+| `river_degenerate_spot` | **363.13 µs @ 1000 iters** *(137× under target)* | **268.15 µs @ 1000 iters** *(186× under target)* | **-26.2 %** | N/A (same reason) | < 50 ms @ 1000 iters |
+| `river_wet_board`       | **667.14 ms @ 100 iters** *(~6.67 ms/iter)* | **589.27 ms @ 100 iters** *(~5.89 ms/iter)* | **-11.7 %** | N/A (same reason) | < 500 ms @ 1000 iters |
 
-**Iteration-count note (2026-04-23, A62).** The pre-SIMD CFR+ inner
-loop on the two heavy spots takes ~5-7 ms per iteration, so 1000
-iterations × 100 criterion samples = ~500–700 s per bench. That's
-unreasonable for routine baseline captures. A62 wired `benches/river.rs`
-to use **100 CFR+ iterations** for canonical + wet-board and kept 1000
-for the degenerate spot (which runs in sub-microsecond per iteration).
+**Post-A64 numbers are criterion mean on Henry's M-series MacBook,
+clean run (no concurrent cargo processes), commit `3480502` with
+`CfrPlusFlat + regret_match_simd` wired through `benches/river.rs`.
+See `bench-history/2026-04-23_*_3480502.json` for the full snapshot.**
 
-Extrapolating the per-iter numbers:
-- canonical at 1000 iters ≈ 4.78 s (5× over the 1 s hard limit)
-- wet-board at 1000 iters ≈ 6.67 s (13× over the 500 ms target)
+**Iteration-count note (2026-04-23, A62/A64).** The CFR+ inner
+loop on the two heavy spots still takes ~4-6 ms per iteration post-A64,
+so 1000 iterations × 100 criterion samples = ~450–600 s per bench.
+That's still unreasonable for routine baseline captures. A62 wired
+`benches/river.rs` to use **100 CFR+ iterations** for canonical +
+wet-board and kept 1000 for the degenerate spot (which runs in
+sub-microsecond per iteration). A64 **left that constant at 100**
+because the flat+SIMD improvement was smaller than expected (see
+"Why the jump is smaller than expected" below) — at ~4.35 ms/iter on
+canonical the 1000-iter extrapolation is still ~4.35 s, which means
+100-iter samples remain the right choice for routine runs.
 
-These are the expected Day-1-scalar baselines; the targets in the last
-column assume post-SIMD matching (A20's `wide::f32x8` path) folded into
-CFR+. At the 9× SIMD speed-up measured on `regret_matching_scalar/1326`
-(1.74 µs → 193 ns, from the SIMD vs scalar table below), the canonical
-spot at 1000 iters should land near ~530 ms on Day 3. Further gains
-come from flat tables (Day 2) and rayon fan-out (Day 3). When the
-Day-2 / Day-3 optimizations land, flip `river.rs`'s `HEAVY_ITERATIONS`
-back to 1000 and rerun.
+Extrapolating the post-A64 per-iter numbers:
+- canonical at 1000 iters ≈ 4.35 s (4.35× over the 1 s hard limit)
+- wet-board at 1000 iters ≈ 5.89 s (~11.8× over the 500 ms target)
+
+**Why the jump is smaller than expected (2026-04-23, A64).** The
+A64 integration wired `CfrPlusFlat` + `regret_match_simd` through the
+river bench (and through solver-cli + solver-ffi as the default
+solver). Pre-A64 expected: 3-9× gain, driven by the 9× SIMD speedup
+measured on `regret_matching_scalar/1326`. Post-A64 measured: 9-26 %
+gain per spot. The delta is **not** a bug — it's the NLHE bet-tree
+shape.
+
+The SIMD path in `matching_simd.rs` has a `SIMD_THRESHOLD = 8`: for
+action sets smaller than 8 it short-circuits to the scalar path,
+because `f32x8` setup + horizontal-reduce overhead dominates the
+actual arithmetic on tiny inputs. The NLHE v0.1 bet tree caps out at
+**5 actions** per info set (check / bet-sizing × 3 / all-in), so the
+SIMD branch *never fires* in the river inner loop. Every
+`regret_match_simd` call on an NLHE river info set forwards to
+`regret_match` (scalar) after the threshold check.
+
+What we **did** get is the flat-array `RegretTables` speedup: the
+~9-26% improvement per spot matches the "skip HashMap + skip Vec
+pointer chase" cost on a tight regret-accumulation loop. That's a
+real win, but it's roughly 10% — not 10×.
+
+Where SIMD *would* fire:
+
+1. **Vector CFR at the river.** If we iterate over the 1326 hero
+   combos as a *vector* regret update (regrets-per-combo per info
+   set) instead of looping per info set, each regret-matching call
+   is N=1326 and the 9× SIMD speedup lands. This is the "vector CFR"
+   layout that `docs/LIMITING_FACTOR.md` calls out as step #2. Not
+   wired in A64 — left for v0.2.
+2. **Preflop 169-grid.** At the preflop hand grid of 169 entries the
+   SIMD path does fire; not a v0.1 hot path today.
+
+v0.1 target (`river_canonical_spot < 300 ms @ 1000 iters`, which at
+100 iters is `< 30 ms`) is **not met** by A64 alone. The remaining
+~15× gap cannot come from scalar-sized regret matching; the only
+paths to close it are (a) vector CFR with the combo axis inside
+`regret_match_simd`, or (b) rayon-based tree-walk parallelism to use
+all cores (A64 is single-threaded). Both are v0.2 work.
+
+**Net:** A64 proves the flat-array integration is correct (Kuhn 10k
+equivalence to 1e-6 holds, NLHE river still produces matching JSON),
+and it delivers a real ~10-26% gain. The meaningful next optimization
+is not more SIMD on the current layout — it's changing the layout so
+the SIMD can bite.
 
 ### Inner-loop microbench (`regret_matching` — scalar only, Day 1 owns this file)
 
