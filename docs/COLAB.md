@@ -111,20 +111,24 @@ cargo run -p solver-cli --release -- pack-cache \
 
 ## Parallelism strategy
 
-Colab free tier gives ~2 CPU cores per session. Pro gives more. To go
-fast we use **multiple sessions in parallel**:
+Colab free tier gives ~2 CPU cores per session. To go fast we use
+**multiple free-tier sessions in parallel**:
 
-- Open 4 browser tabs, each runs a Colab session
+- Open 4 browser tabs, each runs a Colab free-tier session
 - Each session processes a non-overlapping slice of the grid (use a hash
   modulo N assignment to partition)
 - All sessions write to the same Drive folder
 - Dedupe on the Mac side when packing
 
 With 4 sessions × 2 cores each = 8 parallel solves. A grid of 5000 flop
-spots at 5 min each = 5000 × 5 / 8 = ~52 hours of wall clock. Two nights.
+spots at 5 min each = 5000 × 5 / 8 = ~52 hours of wall clock. Two nights
+on free tier.
 
-Colab Pro: better CPU, 24-hour sessions, reliable. Worth $10/mo for a
-sprint.
+**Free tier only.** Henry's rule: no paid services. If a session hits the
+12-hour cap mid-batch, the resumable logic (skip already-complete output
+files) picks up on a fresh session. If free tier is ever insufficient,
+fallback is an overnight run on Henry's Mac — same Rust binary either
+way. No paid upgrade.
 
 ## When to run what
 
@@ -167,12 +171,10 @@ Binary format is the same data packed with `bytemuck`. See
 
 | Item | Cost |
 |---|---|
-| Colab free tier | $0 (limited reliability) |
-| Colab Pro | $10/mo |
-| Colab Pro+ | $50/mo (only if Pro sessions time out too often) |
+| Colab free tier | $0 |
 | Google Drive storage | Free up to 15 GB; we'll use < 5 GB |
 
-**Monthly precompute budget: $10.** Under 0.2% of $60/mo × 40 users.
+**Monthly precompute budget: $0.** Henry's rule — no paid services.
 
 ## What to NOT do
 

@@ -87,28 +87,24 @@ v0.1.
 
 ## Colab hardware (for offline precompute only)
 
-Free tier:
+**Free tier only.** Henry's rule: no paid services. Free tier gives us:
 - 2-core Xeon CPU (usually ~2.2 GHz)
 - ~13 GB RAM
 - Optional T4 GPU (availability varies)
 - 12-hour session max
 
-Pro ($10/mo):
-- More reliable access to V100/A100 GPUs
-- 24-hour session max
-- Higher RAM (~50 GB)
-
-Pro+ ($50/mo):
-- More compute credits
-- Background execution (doesn't require tab open)
-
 **For our precompute workload,** free tier with CPU-only is fine for most
 flop solves (each flop is ~2–10 min on a single Colab CPU core). Running
-multiple flops in parallel across multiple Colab sessions is how we go
-fast — it's embarrassingly parallel.
+multiple free-tier flops in parallel across multiple browser sessions is
+how we go fast — it's embarrassingly parallel, so horizontal scale beats
+vertical scale on a paid tier.
 
-A single Pro subscription is worth it for Henry for one month of sprint,
-then we can decide based on actual throughput whether Pro+ is needed.
+If a free session expires mid-batch (12-hour cap), the resumable logic in
+our Colab notebooks skips already-complete output files and continues
+from where it left off. No paid upgrade needed.
+
+**Fallback if free tier is insufficient:** run the same batch overnight
+on Henry's Mac — the solver-cli binary is the same Rust code either way.
 
 ## Compiler toolchain
 
