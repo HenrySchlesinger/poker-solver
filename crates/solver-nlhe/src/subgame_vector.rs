@@ -515,11 +515,6 @@ impl NlheSubgameVector {
         lose_coeff: f32,
         inv_norm: f32,
     ) {
-        use wide::f32x8;
-        let chunks = NUM_COMBOS / 8;
-        let tail_start = chunks * 8;
-        let zero8 = f32x8::splat(0.0);
-
         // Zero the output first, then fill only active hero combos.
         for slot in out.iter_mut() {
             *slot = 0.0;
@@ -528,43 +523,13 @@ impl NlheSubgameVector {
         for &my_u in &self.hero_active {
             let my = my_u as usize;
             let row = &self.showdown_sign[my];
-
-            let mut pos_acc = zero8;
-            let mut neg_acc = zero8;
-            for c in 0..chunks {
-                let base = c * 8;
-                // Load 8 signs as i8 and widen to f32x8. Rust's
-                // auto-vectorizer usually handles this well for us.
-                let s8: [f32; 8] = [
-                    row[base] as f32,
-                    row[base + 1] as f32,
-                    row[base + 2] as f32,
-                    row[base + 3] as f32,
-                    row[base + 4] as f32,
-                    row[base + 5] as f32,
-                    row[base + 6] as f32,
-                    row[base + 7] as f32,
-                ];
-                let s_v = f32x8::from(s8);
-                let r_slice: [f32; 8] = reach_opp[base..base + 8].try_into().unwrap();
-                let r_v = f32x8::from(r_slice);
-                let rs = s_v * r_v;
-                pos_acc += rs.fast_max(zero8);
-                neg_acc += (-rs).fast_max(zero8);
-            }
-            let mut pos_sum = pos_acc.reduce_add();
-            let mut neg_sum = neg_acc.reduce_add();
-            for v in tail_start..NUM_COMBOS {
-                let rs = row[v] as f32 * reach_opp[v];
-                if rs > 0.0 {
-                    pos_sum += rs;
-                } else if rs < 0.0 {
-                    neg_sum += -rs;
-                }
-            }
+            let (pos_sum, neg_sum) = showdown_row_pos_neg(row, reach_opp);
             out[my] = (pos_sum * win_coeff - neg_sum * lose_coeff) * inv_norm;
         }
     }
+
+    // showdown_matmul_cols dispatches through `showdown_row_scatter_pos_neg`
+    // (same NEON/wide dispatch as rows).
 
     /// Column-major showdown matmul for update=Villain.
     ///
@@ -586,11 +551,6 @@ impl NlheSubgameVector {
         lose_coeff: f32,
         inv_norm: f32,
     ) {
-        use wide::f32x8;
-        let chunks = NUM_COMBOS / 8;
-        let tail_start = chunks * 8;
-        let zero8 = f32x8::splat(0.0);
-
         // Allocate a scratch for the "neg" accumulator alongside
         // `out` (which doubles as the "pos" accumulator). This vec
         // allocation per call is the cost we trade for not holding a
@@ -612,42 +572,7 @@ impl NlheSubgameVector {
                 continue;
             }
             let row = &self.showdown_sign[v];
-            let r_v = f32x8::splat(r);
-            for c in 0..chunks {
-                let base = c * 8;
-                let s8: [f32; 8] = [
-                    row[base] as f32,
-                    row[base + 1] as f32,
-                    row[base + 2] as f32,
-                    row[base + 3] as f32,
-                    row[base + 4] as f32,
-                    row[base + 5] as f32,
-                    row[base + 6] as f32,
-                    row[base + 7] as f32,
-                ];
-                let s_v = f32x8::from(s8);
-                let rs = s_v * r_v;
-
-                let p_slice: [f32; 8] = out[base..base + 8].try_into().unwrap();
-                let n_slice: [f32; 8] = neg_out[base..base + 8].try_into().unwrap();
-                let p = f32x8::from(p_slice);
-                let n = f32x8::from(n_slice);
-                let p_new = p + rs.fast_max(zero8);
-                let n_new = n + (-rs).fast_max(zero8);
-                let p_arr: [f32; 8] = p_new.into();
-                let n_arr: [f32; 8] = n_new.into();
-                out[base..base + 8].copy_from_slice(&p_arr);
-                neg_out[base..base + 8].copy_from_slice(&n_arr);
-            }
-            for my in tail_start..NUM_COMBOS {
-                let s = row[my] as f32;
-                let rs = s * r;
-                if rs > 0.0 {
-                    out[my] += rs;
-                } else if rs < 0.0 {
-                    neg_out[my] += -rs;
-                }
-            }
+            showdown_row_scatter_pos_neg(row, r, out, &mut neg_out);
         }
 
         // Finalize: out[my] = (-pos[my] * lose_coeff + neg[my] * win_coeff) * inv_norm
@@ -766,6 +691,164 @@ fn board_card_mask(board: &Board) -> u64 {
         m |= 1u64 << c.0;
     }
     m
+}
+
+/// Row-inner kernel for `showdown_matmul_rows`: returns `(pos, neg)`
+/// where `pos = Σ_j max(sign_row[j] as f32 * reach_opp[j], 0)` and
+/// `neg = Σ_j max(-sign_row[j] as f32 * reach_opp[j], 0)`.
+///
+/// On aarch64 dispatches to the hand-rolled NEON kernel; elsewhere
+/// uses the `wide::f32x8` fallback kept for x86/scalar targets.
+#[inline]
+fn showdown_row_pos_neg(sign_row: &[i8; NUM_COMBOS], reach_opp: &[f32]) -> (f32, f32) {
+    #[cfg(target_arch = "aarch64")]
+    {
+        // SAFETY: NEON is always available on aarch64 macOS (and on
+        // all aarch64 targets Rust supports). `reach_opp` is
+        // length-NUM_COMBOS per the matmul contract (debug-asserted
+        // inside the kernel).
+        unsafe {
+            return crate::subgame_vector_neon::showdown_row_pos_neg_neon(
+                sign_row.as_slice(),
+                reach_opp,
+            );
+        }
+    }
+
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        showdown_row_pos_neg_wide(sign_row, reach_opp)
+    }
+}
+
+/// Scatter-inner kernel for `showdown_matmul_cols`: for each lane `j`
+/// in `0..NUM_COMBOS`, does
+///   `pos_out[j] += max(sign_row[j] as f32 * r, 0)` and
+///   `neg_out[j] += max(-sign_row[j] as f32 * r, 0)`.
+///
+/// On aarch64 dispatches to the hand-rolled NEON kernel; elsewhere
+/// uses the `wide::f32x8` fallback.
+#[inline]
+fn showdown_row_scatter_pos_neg(
+    sign_row: &[i8; NUM_COMBOS],
+    r: f32,
+    pos_out: &mut [f32],
+    neg_out: &mut [f32],
+) {
+    #[cfg(target_arch = "aarch64")]
+    {
+        // SAFETY: pos_out / neg_out are length-NUM_COMBOS per matmul
+        // contract (debug-asserted inside the kernel).
+        unsafe {
+            crate::subgame_vector_neon::showdown_row_scatter_pos_neg_neon(
+                sign_row.as_slice(),
+                r,
+                pos_out,
+                neg_out,
+            );
+            return;
+        }
+    }
+
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        showdown_row_scatter_pos_neg_wide(sign_row, r, pos_out, neg_out)
+    }
+}
+
+/// Portable `wide`-based fallback for the row-inner kernel. Kept in
+/// sync with the NEON version so x86/scalar builds stay green.
+#[cfg(not(target_arch = "aarch64"))]
+#[inline]
+fn showdown_row_pos_neg_wide(sign_row: &[i8; NUM_COMBOS], reach_opp: &[f32]) -> (f32, f32) {
+    use wide::f32x8;
+    let chunks = NUM_COMBOS / 8;
+    let tail_start = chunks * 8;
+    let zero8 = f32x8::splat(0.0);
+
+    let mut pos_acc = zero8;
+    let mut neg_acc = zero8;
+    for c in 0..chunks {
+        let base = c * 8;
+        let s8: [f32; 8] = [
+            sign_row[base] as f32,
+            sign_row[base + 1] as f32,
+            sign_row[base + 2] as f32,
+            sign_row[base + 3] as f32,
+            sign_row[base + 4] as f32,
+            sign_row[base + 5] as f32,
+            sign_row[base + 6] as f32,
+            sign_row[base + 7] as f32,
+        ];
+        let s_v = f32x8::from(s8);
+        let r_slice: [f32; 8] = reach_opp[base..base + 8].try_into().unwrap();
+        let r_v = f32x8::from(r_slice);
+        let rs = s_v * r_v;
+        pos_acc += rs.fast_max(zero8);
+        neg_acc += (-rs).fast_max(zero8);
+    }
+    let mut pos_sum = pos_acc.reduce_add();
+    let mut neg_sum = neg_acc.reduce_add();
+    for v in tail_start..NUM_COMBOS {
+        let rs = sign_row[v] as f32 * reach_opp[v];
+        if rs > 0.0 {
+            pos_sum += rs;
+        } else if rs < 0.0 {
+            neg_sum += -rs;
+        }
+    }
+    (pos_sum, neg_sum)
+}
+
+/// Portable `wide`-based fallback for the scatter kernel.
+#[cfg(not(target_arch = "aarch64"))]
+#[inline]
+fn showdown_row_scatter_pos_neg_wide(
+    sign_row: &[i8; NUM_COMBOS],
+    r: f32,
+    pos_out: &mut [f32],
+    neg_out: &mut [f32],
+) {
+    use wide::f32x8;
+    let chunks = NUM_COMBOS / 8;
+    let tail_start = chunks * 8;
+    let zero8 = f32x8::splat(0.0);
+    let r_v = f32x8::splat(r);
+
+    for c in 0..chunks {
+        let base = c * 8;
+        let s8: [f32; 8] = [
+            sign_row[base] as f32,
+            sign_row[base + 1] as f32,
+            sign_row[base + 2] as f32,
+            sign_row[base + 3] as f32,
+            sign_row[base + 4] as f32,
+            sign_row[base + 5] as f32,
+            sign_row[base + 6] as f32,
+            sign_row[base + 7] as f32,
+        ];
+        let s_v = f32x8::from(s8);
+        let rs = s_v * r_v;
+        let p_slice: [f32; 8] = pos_out[base..base + 8].try_into().unwrap();
+        let n_slice: [f32; 8] = neg_out[base..base + 8].try_into().unwrap();
+        let p = f32x8::from(p_slice);
+        let n = f32x8::from(n_slice);
+        let p_new = p + rs.fast_max(zero8);
+        let n_new = n + (-rs).fast_max(zero8);
+        let p_arr: [f32; 8] = p_new.into();
+        let n_arr: [f32; 8] = n_new.into();
+        pos_out[base..base + 8].copy_from_slice(&p_arr);
+        neg_out[base..base + 8].copy_from_slice(&n_arr);
+    }
+    for my in tail_start..NUM_COMBOS {
+        let s = sign_row[my] as f32;
+        let rs = s * r;
+        if rs > 0.0 {
+            pos_out[my] += rs;
+        } else if rs < 0.0 {
+            neg_out[my] += -rs;
+        }
+    }
 }
 
 /// FNV-1a style hash over `(player, action_history)` only — no combo.
