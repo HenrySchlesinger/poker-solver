@@ -101,6 +101,18 @@ enum Cmd {
         #[arg(long, default_value = "output_result.json")]
         dump_path: String,
     },
+
+    /// Render a polished 30-second demo of a canonical GTO spot.
+    ///
+    /// The output is deterministic and uses hand-curated strategies
+    /// (see `demo_spots.rs`). When the live NLHE subgame is fully
+    /// wired, the underlying spot data can be swapped for real solver
+    /// output without touching the renderer.
+    Demo {
+        /// Spot preset. One of `royal`, `coinflip`, `bluff_catch`, `all`.
+        #[arg(long, default_value = "royal")]
+        spot: String,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -149,6 +161,17 @@ fn main() -> anyhow::Result<()> {
                 dump_path,
             };
             run_translate(&args)
+        }
+        Cmd::Demo { spot } => {
+            // `use_color: true` means "let `colored` decide" — it already
+            // auto-detects `NO_COLOR` and TTY status, so this is the right
+            // default for interactive CLI use. Tests pass `false` directly.
+            let args = DemoArgs {
+                spot,
+                use_color: true,
+            };
+            let stdout = std::io::stdout();
+            run_demo(&args, stdout.lock())
         }
     }
 }

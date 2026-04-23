@@ -155,6 +155,15 @@ fn render_banner(spot: &Spot, out: &mut impl Write) -> Result<()> {
         "—".bright_black(),
         spot.title.bright_white(),
     )?;
+    // Subtle id badge — tells the viewer which preset they're watching
+    // and doubles as a hint for `--spot <id>`.
+    writeln!(
+        out,
+        "  {}{}{}",
+        "[spot: ".bright_black(),
+        spot.id.bright_black().italic(),
+        "]".bright_black(),
+    )?;
     writeln!(out, "{}", rule.bright_cyan())?;
     writeln!(out)?;
     Ok(())
@@ -178,17 +187,22 @@ fn render_inputs(spot: &Spot, out: &mut impl Write) -> Result<()> {
         spot.villain_range.bright_white(),
     )?;
 
-    let board_display = if spot.board.is_empty() {
-        "(preflop — no community cards yet)".to_string()
-    } else {
-        spot.board.to_string()
-    };
-    let board_line = if spot.board_annotation.is_empty() {
-        board_display.bright_white().to_string()
+    // Preflop: show the annotation in italics as the whole board line
+    // (avoids the awkward "(preflop) (preflop — runs out after)" double
+    // parenthetical). Post-flop: show cards + optional italic annotation.
+    let board_line = if spot.board.is_empty() {
+        let label = if spot.board_annotation.is_empty() {
+            "(preflop — no community cards yet)"
+        } else {
+            spot.board_annotation
+        };
+        label.bright_black().italic().to_string()
+    } else if spot.board_annotation.is_empty() {
+        spot.board.bright_white().to_string()
     } else {
         format!(
             "{}  {}{}{}",
-            board_display.bright_white(),
+            spot.board.bright_white(),
             "(".bright_black(),
             spot.board_annotation.bright_black().italic(),
             ")".bright_black(),
@@ -220,11 +234,27 @@ fn render_inputs(spot: &Spot, out: &mut impl Write) -> Result<()> {
 /// multi-action decisions line up vertically.
 const ACTION_COL_WIDTH: usize = 18;
 
+/// Indent (in spaces) for every row in the strategy grid. Chosen to
+/// align the bars cleanly under a 2-space-indented decision label.
+const GRID_INDENT: usize = 4;
+
 fn render_decision(decision: &Decision, out: &mut impl Write) -> Result<()> {
     writeln!(out, "{}", section_rule("GTO STRATEGY").bright_cyan(),)?;
 
+    // Decision label on its own line. This handles arbitrarily long
+    // labels (like "Hero action vs villain's 15bb jam") without
+    // shifting the bars off-grid.
+    writeln!(
+        out,
+        "  {} {}",
+        "▸".bright_cyan(),
+        format!("{}:", decision.label).bright_white(),
+    )?;
+
+    let indent = " ".repeat(GRID_INDENT);
+
     // Action labels row (e.g. "check      bet 66%    bet (pot)")
-    write!(out, "{}", " ".repeat(24))?;
+    write!(out, "{indent}")?;
     for action in &decision.actions {
         write!(
             out,
@@ -235,12 +265,8 @@ fn render_decision(decision: &Decision, out: &mut impl Write) -> Result<()> {
     }
     writeln!(out)?;
 
-    // Bars row, prefixed by the decision label.
-    write!(
-        out,
-        "  {:<20} ",
-        format!("{}:", decision.label).bright_black(),
-    )?;
+    // Bars row.
+    write!(out, "{indent}")?;
     for action in &decision.actions {
         let bar = bar_for(action.frequency);
         write!(out, "{:<width$}", bar, width = ACTION_COL_WIDTH)?;
@@ -248,11 +274,11 @@ fn render_decision(decision: &Decision, out: &mut impl Write) -> Result<()> {
     writeln!(out)?;
 
     // Percentages row, aligned under the bars.
-    write!(out, "{}", " ".repeat(24))?;
+    write!(out, "{indent}")?;
     for action in &decision.actions {
         let pct = format!("{:>3.0}%", action.frequency * 100.0);
         let colored_pct = freq_color(action.frequency, &pct);
-        write!(out, "{:<width$}", colored_pct, width = ACTION_COL_WIDTH)?;
+        write!(out, " {:<pad$}", colored_pct, pad = ACTION_COL_WIDTH - 1)?;
     }
     writeln!(out)?;
     writeln!(out)?;
