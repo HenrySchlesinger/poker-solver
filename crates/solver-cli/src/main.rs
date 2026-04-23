@@ -4,6 +4,7 @@
 //!   solve              — solve a spot and print JSON
 //!   validate           — diff our solver against TexasSolver on canonical spots
 //!   precompute         — solve a grid of spots and write cache files
+//!   seed-cache         — write the v0.1 format-only flop-cache seed binary
 //!   translate-fixture  — convert a fixture JSON into a TexasSolver config
 //!   demo               — render a polished 30-second demo (A30)
 //!   md-to-ipynb        — convert a colab/*.md plan into a Jupyter .ipynb
@@ -24,11 +25,13 @@ use clap::{Parser, Subcommand};
 mod demo;
 mod demo_spots;
 mod md_to_ipynb;
+mod seed_cache;
 mod solve_cmd;
 mod translate;
 
 use demo::{run_demo, DemoArgs};
 use md_to_ipynb::{run_md_to_ipynb, MdToIpynbArgs};
+use seed_cache::{run_seed_cache, SeedCacheArgs};
 use solve_cmd::{run_solve, SolveArgs};
 use translate::{run_translate, TargetFormat, TranslateArgs};
 
@@ -81,6 +84,20 @@ enum Cmd {
         #[arg(long)]
         grid: String,
         /// Output directory for cache files.
+        #[arg(long)]
+        output: String,
+    },
+
+    /// Write the v0.1 format-only flop-cache seed binary.
+    ///
+    /// Produces a 36-entry placeholder cache (12 boards × 3 SPR buckets ×
+    /// Srp) with hand-constructed strategies. This is NOT real GTO — it
+    /// exists so the loader + format can be exercised end-to-end ahead
+    /// of the Day-5 Colab precompute. See `src/seed_cache.rs` and
+    /// `data/flop-cache/README.md`.
+    SeedCache {
+        /// Output binary path. Canonically
+        /// `data/flop-cache/flop-cache-v0.1.bin`.
         #[arg(long)]
         output: String,
     },
@@ -164,6 +181,12 @@ fn main() -> anyhow::Result<()> {
         Cmd::Precompute { grid: _, output: _ } => {
             // TODO (Day 5, agent A5): grid-solve for Colab.
             anyhow::bail!("precompute: not-yet-implemented (scheduled Day 5)")
+        }
+        Cmd::SeedCache { output } => {
+            let args = SeedCacheArgs {
+                output: output.into(),
+            };
+            run_seed_cache(&args)
         }
         Cmd::TranslateFixture {
             input,
