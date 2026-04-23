@@ -32,7 +32,7 @@ mod translate;
 use demo::{run_demo, DemoArgs};
 use md_to_ipynb::{run_md_to_ipynb, MdToIpynbArgs};
 use seed_cache::{run_seed_cache, SeedCacheArgs};
-use solve_cmd::{run_solve, SolveArgs};
+use solve_cmd::{run_solve, SolveArgs, SolverKind};
 use translate::{run_translate, TargetFormat, TranslateArgs};
 
 /// Top-level CLI.
@@ -69,6 +69,12 @@ enum Cmd {
         /// Bet-tree profile. Only "default" is recognized in v0.1-wip.
         #[arg(long, default_value = "default")]
         bet_tree: String,
+        /// Solver implementation. `flat` (default) uses the flat-array
+        /// `RegretTables` + SIMD regret matching — the post-A64 fast
+        /// path. `classic` uses the `HashMap<InfoSetId, _>` reference
+        /// implementation; kept as an escape hatch for reproducibility.
+        #[arg(long, default_value = "flat")]
+        solver: String,
     },
 
     /// Validate our solver against TexasSolver on a JSON fixture.
@@ -161,7 +167,9 @@ fn main() -> anyhow::Result<()> {
             stack,
             iterations,
             bet_tree,
+            solver,
         } => {
+            let solver_kind = SolverKind::parse(&solver)?;
             let args = SolveArgs {
                 board_raw: board,
                 hero_range_raw: hero_range,
@@ -170,6 +178,7 @@ fn main() -> anyhow::Result<()> {
                 stack,
                 iterations,
                 bet_tree,
+                solver: solver_kind,
             };
             let stdout = std::io::stdout();
             run_solve(&args, stdout.lock())

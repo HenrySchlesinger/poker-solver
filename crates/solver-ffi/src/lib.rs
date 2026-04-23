@@ -17,7 +17,7 @@
 use std::panic::{self, catch_unwind, AssertUnwindSafe};
 use std::time::Instant;
 
-use solver_core::{CfrPlus, Game, Player, Strategy};
+use solver_core::{CfrPlusFlat, Game, Player, Strategy};
 use solver_eval::card::Card;
 use solver_eval::combo::NUM_COMBOS;
 use solver_eval::Board;
@@ -414,7 +414,13 @@ fn run_cfr(parsed: &ParsedInputs) -> Result<SolveOutcome, SolverStatus> {
         1,
     );
 
-    let mut solver = CfrPlus::new(subgame);
+    // Post-A64: default to `CfrPlusFlat` (flat `RegretTables` + SIMD
+    // regret matching). Convergence is guarded by
+    // `solver-core/tests/flat_equivalence.rs` on Kuhn, and by the e2e
+    // JSON tests in solver-cli for NLHE river. Info-set enumeration at
+    // `from_roots` construction is a few ms on an NLHE river subgame,
+    // amortized across `DEFAULT_ITERATIONS` CFR iterations.
+    let mut solver = CfrPlusFlat::from_roots(subgame, &roots);
     solver.run_from(&roots, DEFAULT_ITERATIONS);
 
     let exploitability = solver.exploitability();

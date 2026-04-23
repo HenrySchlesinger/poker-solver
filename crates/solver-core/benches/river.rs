@@ -85,7 +85,7 @@ use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, Criterion};
 
-use solver_core::{CfrPlus, Player};
+use solver_core::{CfrPlusFlat, Player};
 
 use solver_eval::board::Board;
 use solver_eval::card::Card;
@@ -178,10 +178,17 @@ fn build_wet_board() -> NlheSubgame {
 ///
 /// The subgame (incl. showdown-matrix construction) is built inside
 /// `setup` and handed off — the measurement window is just the
-/// `run_from` call plus the `average_strategy` fold at the end.
+/// `CfrPlusFlat::from_roots` construction, the `run_from` call, and the
+/// `average_strategy` fold at the end.
+///
+/// Post-A64 this drives `CfrPlusFlat` (flat `RegretTables` + SIMD
+/// regret matching) — the default solver across the workspace. The
+/// `from_roots` enumeration cost is included in the measurement because
+/// that's how production callers (solver-cli, solver-ffi) use the
+/// solver: build subgame, enumerate roots, construct flat solver, run.
 #[inline(always)]
 fn run_one(subgame: NlheSubgame, roots: &[(SubgameState, f32)], iterations: u32) {
-    let mut solver = CfrPlus::new(subgame);
+    let mut solver = CfrPlusFlat::from_roots(subgame, roots);
     solver.run_from(black_box(roots), black_box(iterations));
     // Force the average-strategy computation so a clever compiler can't
     // elide the whole training pass as dead code.

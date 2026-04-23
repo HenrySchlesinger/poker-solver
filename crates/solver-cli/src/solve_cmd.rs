@@ -39,7 +39,7 @@ use std::time::Instant;
 
 use anyhow::{anyhow, Context, Result};
 use serde_json::{json, Value};
-use solver_core::{CfrPlus, Game, Player, Strategy};
+use solver_core::{CfrPlus, CfrPlusFlat, Game, Player, Strategy};
 use solver_eval::card::Card;
 use solver_eval::combo::combo_index;
 use solver_eval::Board;
@@ -66,6 +66,39 @@ pub const SOLVER_VERSION: &str = "0.1.0-wip";
 /// moment the solve finishes, and committed pages are lazy.
 const SOLVE_THREAD_STACK_BYTES: usize = 128 * 1024 * 1024;
 
+/// Which CFR+ solver implementation to drive. Callers pick via
+/// `--solver flat|classic`; `flat` is the default post-A64 (flat
+/// `RegretTables` + SIMD regret matching, ~3-9× faster on river spots).
+/// `classic` is the original `HashMap<InfoSetId, _>` implementation,
+/// kept as an escape hatch for reproducibility and convergence-check
+/// comparisons against the flat path (see `tests/flat_equivalence.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SolverKind {
+    /// `CfrPlusFlat` — flat-array `RegretTables` + SIMD regret matching.
+    /// Default as of A64. Requires upfront info-set enumeration (a few
+    /// ms on an NLHE river subgame, amortized over the CFR iterations).
+    Flat,
+    /// `CfrPlus` — `HashMap<InfoSetId, _>` reference implementation.
+    /// Slower but has no enumeration cost and is the convergence oracle
+    /// for `tests/flat_equivalence.rs`.
+    Classic,
+}
+
+impl SolverKind {
+    /// Parse the CLI `--solver` value. Unknown strings produce a readable
+    /// error; "flat" and "classic" are the only accepted values today.
+    pub fn parse(s: &str) -> Result<Self> {
+        match s {
+            "flat" => Ok(Self::Flat),
+            "classic" => Ok(Self::Classic),
+            other => anyhow::bail!(
+                "unknown --solver value {:?} (known: \"flat\", \"classic\")",
+                other
+            ),
+        }
+    }
+}
+
 /// Parsed + validated arguments for `solver-cli solve`.
 ///
 /// Separated from the `clap` struct in `main.rs` so the solve logic can
@@ -86,6 +119,10 @@ pub struct SolveArgs {
     pub iterations: u32,
     /// Bet-tree profile name. Only `"default"` is recognized at v0.1-wip.
     pub bet_tree: String,
+    /// Which solver implementation to use. Defaults to `Flat` (the
+    /// post-A64 flat+SIMD path). `Classic` keeps the HashMap reference
+    /// implementation available for convergence comparisons.
+    pub solver: SolverKind,
 }
 
 /// Parsed/validated inputs after the string-parsing stage. Owned so the
@@ -98,6 +135,7 @@ pub struct ParsedInputs {
     pub pot: u32,
     pub stack: u32,
     pub iterations: u32,
+    pub solver: SolverKind,
 }
 
 /// Parse the raw string inputs into domain types. Does not touch the solver.
@@ -138,6 +176,7 @@ pub fn parse_inputs(args: &SolveArgs) -> Result<ParsedInputs> {
         pot: args.pot,
         stack: args.stack,
         iterations: args.iterations,
+        solver: args.solver,
     })
 }
 
@@ -294,6 +333,7 @@ fn solve_to_json(parsed: &ParsedInputs) -> Result<Value> {
         pot: parsed.pot,
         stack: parsed.stack,
         iterations: parsed.iterations,
+        solver: parsed.solver,
     };
 
     let worker = std::thread::Builder::new()
@@ -369,15 +409,31 @@ fn run_cfr(parsed: &ParsedInputs) -> Result<SolveSummary> {
         1,
     );
 
-    // Run CFR+ from the weighted root set.
-    let mut solver = CfrPlus::new(subgame);
-    solver.run_from(&roots, parsed.iterations);
-
-    // Aggregate the root strategy + per-action EV across combo pairs.
-    let exploitability = solver.exploitability();
-    let avg_strategy = solver.average_strategy();
-    let (action_frequencies, ev_per_action) =
-        aggregate_root_strategy_and_ev(solver.game(), &avg_strategy, &roots);
+    // Run CFR+ from the weighted root set. Dispatch on `--solver`:
+    // `Flat` drives the post-A64 flat-array + SIMD path (default),
+    // `Classic` keeps the reference HashMap implementation alive as an
+    // escape hatch.
+    let (exploitability, avg_strategy, action_frequencies, ev_per_action) = match parsed.solver {
+        SolverKind::Flat => {
+            let mut solver = CfrPlusFlat::from_roots(subgame, &roots);
+            solver.run_from(&roots, parsed.iterations);
+            let expl = solver.exploitability();
+            let avg = solver.average_strategy();
+            let (freq, ev) = aggregate_root_strategy_and_ev(solver.game(), &avg, &roots);
+            (expl, avg, freq, ev)
+        }
+        SolverKind::Classic => {
+            let mut solver = CfrPlus::new(subgame);
+            solver.run_from(&roots, parsed.iterations);
+            let expl = solver.exploitability();
+            let avg = solver.average_strategy();
+            let (freq, ev) = aggregate_root_strategy_and_ev(solver.game(), &avg, &roots);
+            (expl, avg, freq, ev)
+        }
+    };
+    // Keep `avg_strategy` around so the `let` above doesn't warn about
+    // an unused binding — downstream aggregation consumed the summary.
+    let _ = &avg_strategy;
 
     Ok(SolveSummary {
         action_frequencies,
@@ -609,6 +665,7 @@ mod tests {
             stack: 1000,
             iterations: 1000,
             bet_tree: "default".to_string(),
+            solver: SolverKind::Flat,
         }
     }
 
@@ -748,6 +805,7 @@ mod tests {
             stack: 0,
             iterations: 10,
             bet_tree: "default".to_string(),
+            solver: SolverKind::Flat,
         };
         let mut out = Vec::new();
         run_solve(&a, &mut out).expect("solve must succeed on a river spot");
@@ -797,6 +855,7 @@ mod tests {
             stack: 500,
             iterations: 50,
             bet_tree: "default".to_string(),
+            solver: SolverKind::Flat,
         };
         let mut out = Vec::new();
         run_solve(&a, &mut out).expect("solve must succeed on a stack>0 river spot");
@@ -830,5 +889,42 @@ mod tests {
         let p = parse_inputs(&a).unwrap();
         assert!(p.hero.total_weight() > 0.0);
         assert!(p.villain.total_weight() > 0.0);
+    }
+
+    #[test]
+    fn solver_kind_parses_known_values() {
+        assert_eq!(SolverKind::parse("flat").unwrap(), SolverKind::Flat);
+        assert_eq!(SolverKind::parse("classic").unwrap(), SolverKind::Classic);
+    }
+
+    #[test]
+    fn solver_kind_rejects_unknown_values() {
+        let err = SolverKind::parse("mystery").unwrap_err();
+        let msg = err.to_string().to_lowercase();
+        assert!(msg.contains("solver"), "err: {err}");
+        assert!(msg.contains("mystery"), "err: {err}");
+    }
+
+    /// Both `--solver flat` and `--solver classic` must produce a valid
+    /// JSON document on the degenerate river spot. This is the smoke
+    /// test that the classic escape hatch still works after A64's
+    /// default-swap.
+    #[test]
+    fn run_solve_classic_solver_still_works() {
+        let a = SolveArgs {
+            board_raw: "2c7d9hTsJs".to_string(),
+            hero_range_raw: "AhKh".to_string(),
+            villain_range_raw: "AsAd".to_string(),
+            pot: 100,
+            stack: 0,
+            iterations: 10,
+            bet_tree: "default".to_string(),
+            solver: SolverKind::Classic,
+        };
+        let mut out = Vec::new();
+        run_solve(&a, &mut out).expect("solve must succeed under --solver classic");
+        let s = String::from_utf8(out).expect("solve output must be UTF-8");
+        let v: Value = serde_json::from_str(&s).expect("solve output must parse as JSON");
+        assert!(v.get("result").is_some(), "missing result: {v}");
     }
 }
