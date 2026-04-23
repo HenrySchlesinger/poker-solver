@@ -453,7 +453,37 @@ impl Game for NlheSubgame {
 
     fn apply(&self, state: &Self::State, action: &Self::Action) -> Self::State {
         let mut next = state.clone();
-        next.actions.push(Street::River, *action);
+        // Substitute `AllIn` with a concrete `Bet(stack_start)` (if opening
+        // the street) or `Raise(stack_start)` (if facing a bet/raise) so
+        // that `ActionLog::pot_contributions_on` has the chip total it
+        // needs to compute per-street committed chips. Without this, a
+        // bare `AllIn` in the log makes `pot_contributions_on` return
+        // (0, 0) on a subsequent pass — which causes `legal_river_actions`
+        // to re-enter the "no aggression yet" branch and emit another
+        // `{Check, Bet, AllIn}`, producing an unbounded tree. See the
+        // `A47+` TODO in `tests/river_canonical.rs` for the OOM this
+        // caused before the fix.
+        let resolved = match action {
+            Action::AllIn => {
+                let (hs, vs) = self.street_contributions(state);
+                let current = self.river_current_player(state);
+                let (my_street, opp_street) = match current {
+                    Player::Hero => (hs, vs),
+                    Player::Villain => (vs, hs),
+                };
+                // `stack_start` is the total chips each player has on the
+                // river; the all-in commits the full stack for this actor.
+                // For a responder (facing a bet), this is a raise TO
+                // `stack_start`. For an opener, it's a bet TO `stack_start`.
+                if opp_street > my_street {
+                    Action::Raise(self.stack_start)
+                } else {
+                    Action::Bet(self.stack_start)
+                }
+            }
+            other => *other,
+        };
+        next.actions.push(Street::River, resolved);
         next
     }
 

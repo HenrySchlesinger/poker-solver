@@ -736,11 +736,7 @@ mod tests {
         // shape: both players are already all-in entering the river
         // (stack_start = 0), so the only legal action at every state
         // is Check and the tree collapses to Check/Check → showdown.
-        // This mirrors `solver-nlhe/tests/river_canonical.rs::trivial_allin_showdown`,
-        // the only river configuration that solves quickly under the
-        // v0.1 bet tree (see the A47+ TODO there — `stack_start > 0`
-        // currently trips a runaway allocation in `CfrPlus::walk` that
-        // we can't fix from this crate).
+        // Mirrors `solver-nlhe/tests/river_canonical.rs::trivial_allin_showdown`.
         //
         // Hero holds Ah-Kh, Villain holds As-Ad. Board 2c7d9hTsJs.
         // Villain's pocket aces make a pair; Hero has A-high only.
@@ -774,6 +770,58 @@ mod tests {
         ] {
             assert!(result.get(k).is_some(), "result missing {k}: {result}");
         }
+    }
+
+    #[test]
+    fn run_solve_produces_json_with_positive_stack() {
+        // Regression test for the A47+ bug (fixed in A58): a bare
+        // `Action::AllIn` in the river action log caused
+        // `ActionLog::pot_contributions_on` to return (0, 0), which made
+        // `legal_river_actions` re-enter the "no aggression yet" branch
+        // and emit another `{Check, Bet, AllIn}` — producing an
+        // unbounded tree and > 30 GB RSS OOM.
+        //
+        // The fix in `NlheSubgame::apply` translates `AllIn` into a
+        // concrete `Bet(stack_start)` or `Raise(stack_start)` before
+        // pushing it to the log, which bounds the river tree.
+        //
+        // This test runs a non-trivial river spot with `stack > 0` to
+        // guard against regressions: the old behaviour failed to
+        // terminate; the fixed behaviour returns valid JSON in well
+        // under a second.
+        let a = SolveArgs {
+            board_raw: "AhKhQhJhTh".to_string(),
+            hero_range_raw: "AsKs".to_string(),
+            villain_range_raw: "AdKd".to_string(),
+            pot: 100,
+            stack: 500,
+            iterations: 50,
+            bet_tree: "default".to_string(),
+        };
+        let mut out = Vec::new();
+        run_solve(&a, &mut out).expect("solve must succeed on a stack>0 river spot");
+        let s = String::from_utf8(out).expect("solve output must be UTF-8");
+        let v: Value = serde_json::from_str(&s).expect("solve output must parse as JSON");
+        let result = v.get("result").expect("result block missing");
+        let freqs = result
+            .get("action_frequencies")
+            .and_then(|f| f.as_object())
+            .expect("action_frequencies should be a JSON object");
+        // Stack > 0 means the opener has real choices — Check, at least
+        // one Bet sizing, and AllIn. The tree must have actually expanded
+        // (rather than collapsing to Check/Check) for this test to be a
+        // meaningful regression guard.
+        assert!(
+            freqs.len() >= 3,
+            "expected multiple root actions with stack > 0, got {}: {:?}",
+            freqs.len(),
+            freqs
+        );
+        assert!(
+            freqs.contains_key("allin"),
+            "root should include allin when stack > 0: {:?}",
+            freqs
+        );
     }
 
     #[test]

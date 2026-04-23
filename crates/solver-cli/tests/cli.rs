@@ -120,10 +120,12 @@ fn precompute_is_scaffolded_not_yet_implemented() {
 /// We use the "trivial all-in showdown" shape: both players already
 /// all-in entering the river (`stack=0`), so the only legal action is
 /// Check and the tree collapses to Check/Check → showdown. See
-/// `solver-nlhe/tests/river_canonical.rs::trivial_allin_showdown` —
-/// this is the only river configuration that solves quickly under the
-/// v0.1 bet tree; larger-stack spots trip an upstream runaway allocation
-/// in `CfrPlus::walk` that the A47+ TODO in `river_canonical.rs` owns.
+/// `solver-nlhe/tests/river_canonical.rs::trivial_allin_showdown`.
+///
+/// (The A47+ runaway-allocation behaviour on `stack > 0` was fixed in
+/// A58 by translating `Action::AllIn` into `Bet(stack_start)` /
+/// `Raise(stack_start)` at `NlheSubgame::apply` time, which bounds the
+/// river bet tree.)
 #[test]
 fn solve_produces_valid_json_end_to_end() {
     let output = bin()
