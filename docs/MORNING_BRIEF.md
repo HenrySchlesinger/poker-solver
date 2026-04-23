@@ -13,6 +13,21 @@ extrapolates to ~4.35 s @ 1000 iters vs the 300 ms v0.1 target; that
 is now a documented v0.2 gap, not a v0.1 blocker. Realistic tag date
 unchanged at 2026-04-27/28.
 
+**A66 (2026-04-23):** exploitability field in the CLI JSON output is
+**wrong for NLHE** — `CfrPlus(Flat)::exploitability()` delegates to a
+helper that walks `Game::initial_state()` (a phantom non-chance-layer
+root with a card-conflict combo pair) instead of the
+`chance_roots()` mixture CFR trained on. Numbers 52.0 / 101.0 are
+~0.52–1.0 × pot regardless of iteration count — fingerprint of a
+phantom-state fallback-uniform BR exploit, not under-convergence. The
+solve itself is fine (action_frequencies/ev_per_action/equity all come
+from the real trained strategy). **Not a v0.1 blocker** if we either
+(a) document the known-wrong metric in release notes, or (b) omit /
+rename the field in `build_result_json` (one-line). See
+`docs/EXPLOITABILITY_TRIAGE.md` for full analysis, evidence tables,
+and the proper fix (root-aware `exploitability_over_roots` helper —
+~80-line follow-up, not shippable today).
+
 ## What landed overnight
 
 - **A58 `5629935`** — fixed the 30 GB river-CFR+ OOM; stack>0 now
