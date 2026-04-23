@@ -10,5 +10,17 @@ description = "Card, hand evaluator, equity, isomorphism — pure poker primitiv
 
 [dependencies]
 bytemuck = { workspace = true }
-# TODO (Day 1, agent A2): add `rs-poker` or similar once evaluator choice is made.
-# Do NOT write a 5-card evaluator from scratch — it's a solved problem.
+# Hand evaluator. Picked `rs_poker` (crate name uses underscore) over
+# `pokerlookup` because rs_poker is actively maintained, pure-Rust with no
+# C deps, and provides both `rank()` (7-card) and `rank_five()` (5-card)
+# off its `Rankable` trait. We disable the default features (`arena`,
+# `serde`) because we only need `core::{Card, Rank, Rankable, Suit,
+# Value}` — the arena poker-simulation layer and serde impls are dead
+# weight here and the arena feature even pulls in nightly-only features.
+rs_poker = { version = "4.1", default-features = false }
+# Deterministic PRNG for Monte Carlo equity runouts (agent A3, Day 2).
+# xoshiro is ~3ns per u64 and seedable, so equity results are
+# reproducible across runs — which matters for tests and for CFR
+# determinism when we sample runouts inside the solver.
+rand = { workspace = true }
+rand_xoshiro = { workspace = true }
