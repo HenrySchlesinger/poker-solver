@@ -13,6 +13,6 @@
 # bump it by default.
 
 [toolchain]
-channel = "1.82.0"
+channel = "1.85.0"
 components = ["rustfmt", "clippy"]
 profile = "minimal"
