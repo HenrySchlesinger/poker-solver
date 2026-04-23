@@ -25,12 +25,12 @@ cargo bench -p solver-core --bench regret_matching
 # Full CFR+ solve on Kuhn Poker (10, 100, 1000 iterations)
 cargo bench -p solver-core --bench cfr_kuhn
 
-# River KPI harness. Until NLHE lands, only the Kuhn placeholder
-# subgroup runs. The real `river_canonical_spot` / `river_degenerate_spot`
-# / `river_wet_board` benches are stubs that print "SKIPPED" — flip the
-# env var once `solver-nlhe::NlheSubgame` is implemented:
+# River KPI harness. Wired to real NLHE subgames as of 2026-04-23
+# (A62). Runs three benches: `river_canonical_spot` (100 CFR+ iters),
+# `river_degenerate_spot` (1000 iters), `river_wet_board` (100 iters).
+# See the "Iteration-count note" in the Primary KPI table for why the
+# heavier spots are at 100 iters pre-SIMD.
 cargo bench -p solver-core --bench river
-SOLVER_RUN_RIVER_BENCH=1 cargo bench -p solver-core --bench river
 ```
 
 Filter within a bench file by passing a substring:
@@ -76,28 +76,42 @@ to stdout. The summary is what goes in commit messages and PR descriptions.
 ## The benches we care about
 
 ### `river_canonical_spot`
-The primary KPI. A known river spot (AhKh2s-Qh-4d, hero AA+ vs villain
-broadway range, 100bb pot, 2-action bet tree). 1000 CFR+ iterations.
-Measures wall-clock time.
+The primary KPI. A known river spot (`AhKhQh2d4s`, hero `"AA,KK,AKs"`
+vs villain `"22+,AJs+,KQs"`, pot 100, stack 500, default 5-sizing bet
+tree). Currently **100 CFR+ iterations** pre-SIMD (see iteration-count
+note). Measures wall-clock time.
 
-**Target: < 300 ms on M1 Pro. Hard limit: < 1 s.**
+**Target: < 300 ms on M1 Pro at 1000 iterations. Hard limit: < 1 s.**
+
+**Day 1 (scalar) baseline: 478 ms @ 100 iters** (2026-04-23, A62).
 
 ```
 cargo bench -p solver-core -- river_canonical_spot
 ```
 
 ### `river_degenerate_spot`
-All-in preflop → river. Ranges are effectively binary (all hands go to
-showdown). Tests that the solver handles trivial subgames fast, no
-degenerate loops.
+Already-all-in → river (both players all-in entering the river, so the
+tree collapses to Check/Check → showdown). Ranges are specific single
+combos: hero `AhKh`, villain `AsAd`, board `2c7d9hTsJs`, pot 1000,
+stack 0. Tests that the solver handles trivial subgames fast, no
+degenerate loops. Runs at **1000 CFR+ iterations** (sub-microsecond per
+iteration).
 
 **Target: < 50 ms.**
 
-### `river_wet_board`
-Wet/drawy board like JhTh9c-8h-7h (four-to-a-flush + straight texture).
-More action complexity, more nodes. Stress test for the node count.
+**Day 1 (scalar) baseline: 363 µs @ 1000 iters** (2026-04-23, A62) —
+137× under target.
 
-**Target: < 500 ms on M1 Pro.**
+### `river_wet_board`
+Wet/drawy board `JhTh9c8h7s` (four-to-a-flush + straight texture), hero
+`"AA,AKs,QTs"` vs villain `"22+,AQs+"`, pot 100, stack 500. More action
+complexity, more nodes. Stress test for the node count. Currently
+**100 CFR+ iterations** pre-SIMD.
+
+**Target: < 500 ms on M1 Pro at 1000 iterations.**
+
+**Day 1 (scalar) baseline: 667 ms @ 100 iters** (2026-04-23, A62) —
+~6.67 ms/iter, extrapolates to ~6.67 s at 1000 iters pre-SIMD.
 
 ### `regret_matching_scalar/{3, 8, 26, 169, 1326}`
 Microbench group in `benches/regret_matching.rs`. Runs the scalar
@@ -199,17 +213,29 @@ snapshot is `bench-history/2026-04-23_094257_8e26e00.json` (commit
 
 | Bench | Day 1 (scalar, baseline) | Day 2 (flat tables) | Day 3 (SIMD+rayon) | Day 4 (Metal, if built) | v0.1 target |
 |---|---|---|---|---|---|
-| `river_canonical_spot`  | not yet wired *(NLHE river subgame doesn't exist; see `benches/river.rs`)* | TBD | TBD | N/A (Metal slower at N=1326 — see SIMD vs Metal section below) | < 300 ms |
-| `river_degenerate_spot` | not yet wired | TBD | TBD | N/A (same reason) | < 50 ms |
-| `river_wet_board`       | not yet wired | TBD | TBD | N/A (same reason) | < 500 ms |
+| `river_canonical_spot`  | **478.23 ms @ 100 iters** *(~4.78 ms/iter; see iteration-count note below)* | TBD | TBD | N/A (Metal slower at N=1326 — see SIMD vs Metal section below) | < 300 ms @ 1000 iters |
+| `river_degenerate_spot` | **363.13 µs @ 1000 iters** *(137× under target)* | TBD | TBD | N/A (same reason) | < 50 ms @ 1000 iters |
+| `river_wet_board`       | **667.14 ms @ 100 iters** *(~6.67 ms/iter; see iteration-count note below)* | TBD | TBD | N/A (same reason) | < 500 ms @ 1000 iters |
 
-Placeholder we measure instead until NLHE lands (Kuhn-wrapped — identical
-work to `cfr_plus_kuhn/1000`, so we don't run it twice; see that row
-below):
+**Iteration-count note (2026-04-23, A62).** The pre-SIMD CFR+ inner
+loop on the two heavy spots takes ~5-7 ms per iteration, so 1000
+iterations × 100 criterion samples = ~500–700 s per bench. That's
+unreasonable for routine baseline captures. A62 wired `benches/river.rs`
+to use **100 CFR+ iterations** for canonical + wet-board and kept 1000
+for the degenerate spot (which runs in sub-microsecond per iteration).
 
-| Bench | Day 1 (scalar, baseline) | Notes |
-|---|---|---|
-| `river_placeholder_kuhn_1000_iters` | see `cfr_plus_kuhn/1000` | Kuhn Poker, 1000 CFR+ iterations. Proxy for wiring; NOT a proxy for NLHE river cost. |
+Extrapolating the per-iter numbers:
+- canonical at 1000 iters ≈ 4.78 s (5× over the 1 s hard limit)
+- wet-board at 1000 iters ≈ 6.67 s (13× over the 500 ms target)
+
+These are the expected Day-1-scalar baselines; the targets in the last
+column assume post-SIMD matching (A20's `wide::f32x8` path) folded into
+CFR+. At the 9× SIMD speed-up measured on `regret_matching_scalar/1326`
+(1.74 µs → 193 ns, from the SIMD vs scalar table below), the canonical
+spot at 1000 iters should land near ~530 ms on Day 3. Further gains
+come from flat tables (Day 2) and rayon fan-out (Day 3). When the
+Day-2 / Day-3 optimizations land, flip `river.rs`'s `HEAVY_ITERATIONS`
+back to 1000 and rerun.
 
 ### Inner-loop microbench (`regret_matching` — scalar only, Day 1 owns this file)
 

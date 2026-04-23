@@ -1,0 +1,15 @@
+{
+  "commit": "d8505fa23dfeef8442ec8a66b47fe1c8e6af45c7",
+  "commit_short": "d8505fa",
+  "date_utc": "2026-04-23T10:50:49Z",
+  "hardware": "M-series Mac (Henry's laptop)",
+  "agent": "A62",
+  "rust_toolchain": "1.85.0-aarch64-apple-darwin",
+  "profile": "bench (optimized + debuginfo)",
+  "notes": "First post-FFI-wired snapshot: `benches/river.rs` now drives real `NlheSubgame` + `CfrPlus::run_from` on top of A17/A58/A59. Canonical + wet-board benches run at 100 CFR+ iterations (down from the 1000-iter spec) because the pre-SIMD inner loop is ~5-7 ms/iter, making 1000 iters × 100 criterion samples unreasonable at the Day-1-scalar baseline. Degenerate stays at 1000 iters (sub-microsecond per iter, trivial subgame). Baseline captured against workspace HEAD d8505fa after staging A62's dev-dep + bench rewrite; auto-commit hook committed the staged-but-still-dirty file tree under concurrent agent activity during the session, so HEAD may advance by the time A62's commits land. Clean run, no concurrent cargo processes.",
+  "benches": {
+    "river_canonical_spot":  {"mean_ns": 478230000.0, "unit": "ns", "ci_low_ns": 477300000.0, "ci_high_ns": 479190000.0, "mean_display": "478.23 ms", "iterations_per_sample": 100, "notes": "AhKhQh2d4s, hero AA/KK/AKs, villain 22+/AJs+/KQs, pot 100, stack 500. ~4.78 ms/CFR+ iter pre-SIMD."},
+    "river_degenerate_spot": {"mean_ns": 363130.0,    "unit": "ns", "ci_low_ns": 361700.0,    "ci_high_ns": 364700.0,    "mean_display": "363.13 µs", "iterations_per_sample": 1000, "notes": "2c7d9hTsJs, hero AhKh vs villain AsAd, pot 1000, stack 0. Tree collapses to Check/Check → showdown. 137x under 50 ms target."},
+    "river_wet_board":       {"mean_ns": 667140000.0, "unit": "ns", "ci_low_ns": 666220000.0, "ci_high_ns": 668110000.0, "mean_display": "667.14 ms", "iterations_per_sample": 100, "notes": "JhTh9c8h7s, hero AA/AKs/QTs, villain 22+/AQs+, pot 100, stack 500. ~6.67 ms/CFR+ iter pre-SIMD; wet four-to-a-flush + straight texture."}
+  }
+}

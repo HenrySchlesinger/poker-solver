@@ -56,11 +56,17 @@ The canonical baseline set:
 - `cfr_plus_kuhn_single_iteration` — one `iterate_from` call for
   inner-loop reasoning.
 
+Also captured (A62, 2026-04-23, post-FFI wiring):
+
+- `river_canonical_spot`, `river_degenerate_spot`, `river_wet_board`
+  — real NLHE river subgames wired in `benches/river.rs` on top of
+  A17's `NlheSubgame`, A58's OOM fix, and A59's FFI glue. Canonical +
+  wet at 100 CFR+ iters (pre-SIMD); degenerate at 1000 iters (trivial
+  subgame). See `docs/BENCHMARKS.md#iteration-count-note` for why the
+  heavy spots are at 100 iters.
+
 Not captured (on purpose, as of 2026-04-23):
 
-- `benches/river.rs` — Kuhn-wrapped placeholder, redundant with
-  `cfr_plus_kuhn/1000`. Will be captured once `solver-nlhe::NlheSubgame`
-  lands and `SOLVER_RUN_RIVER_BENCH=1` unlocks the real river spots.
 - `benches/simd_matching.rs`, `benches/metal_matching.rs`,
   `benches/flat_vs_hashmap.rs` — optimization-path benches that move
   independently of the scalar baseline. Captured only when the
