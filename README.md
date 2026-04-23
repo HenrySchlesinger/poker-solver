@@ -44,6 +44,8 @@ Before tagging a release, run `scripts/ship.sh` — it chains the fmt /
 clippy / test / bench-compile / ffi-artifact gates in one go. See
 [docs/SHIP_V0_1.md](docs/SHIP_V0_1.md) for the full ship checklist.
 
+Run precompute on Colab (free T4 GPU) — see [colab/README.md](colab/README.md) for one-click notebooks.
+
 ## Quick install (Poker Panel integrators)
 
 Full guide: [docs/INTEGRATION.md](docs/INTEGRATION.md). TL;DR:

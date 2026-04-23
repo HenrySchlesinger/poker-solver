@@ -18,7 +18,20 @@ directly. Keeping plans in Markdown means they live nicely in git.
 
 ## Running
 
-Open a new Colab notebook. Paste the cells from the `.md` file in order.
-Save the resulting `.ipynb` locally if you want to re-run later, but
-**don't commit `.ipynb` files** — they're noisy in diffs and the
-Markdown plan is the source of truth.
+The `.ipynb` files are generated from the `.md` plans by our `solver-cli`
+tool and committed so Colab's "Open in GitHub" flow works. The Markdown
+plans remain the source of truth — edit those, then regenerate:
+
+```bash
+cargo run --release -p solver-cli -- md-to-ipynb \
+    --input colab/precompute_preflop.md \
+    --output colab/precompute_preflop.ipynb
+```
+
+## Open in Colab
+
+| Notebook | Open in Colab |
+|---|---|
+| Preflop precompute | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/HenrySchlesinger/poker-solver/blob/main/colab/precompute_preflop.ipynb) |
+| Flop cache grid | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/HenrySchlesinger/poker-solver/blob/main/colab/precompute_flops.ipynb) |
+| Convergence validation | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/HenrySchlesinger/poker-solver/blob/main/colab/convergence_bench.ipynb) |
