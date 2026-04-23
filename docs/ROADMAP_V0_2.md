@@ -28,7 +28,7 @@ from [A61 ship audit](SHIP_V0_1.md), [A64 perf diagnosis](BENCHMARKS.md),
   **1326 hero combos** per info set instead of across actions. Action
   dimension stays scalar (it's small and branchy); combo dimension
   becomes the 8-wide SIMD lane. This is the layout change
-  [LIMITING_FACTOR.md §5](LIMITING_FACTOR.md) always called "vector CFR"
+  [LIMITING_FACTOR.md §5](LIMITING_FACTOR.md#5-vector-cfr-reformulation-already-in-algorithm-choice) always called "vector CFR"
   and is where the 9× `regret_match_simd` speedup measured on N=1326
   actually lands.
 - **Files:** `crates/solver-core/src/cfr_flat.rs`; a new
@@ -61,7 +61,7 @@ from [A61 ship audit](SHIP_V0_1.md), [A64 perf diagnosis](BENCHMARKS.md),
 ### C. Colab flop-cache population
 
 - **Blocking:** `data/flop-cache/flop-cache-v0.1.bin` is 374 KB of 36
-  placeholder entries ([SHIP_V0_1.md Data section](SHIP_V0_1.md)); the
+  placeholder entries ([SHIP_V0_1.md Data section](SHIP_V0_1.md#data--shipped-artifacts)); the
   loader, format, and pack tooling are all proven.
 - **Fix:** run `colab/precompute_flops.ipynb` on Colab free-tier to
   generate canonical-flop strategies for 1755 strategically distinct
