@@ -101,16 +101,36 @@ echo "input: $STATIC_LIB"
 echo "  $LIPO_INFO"
 echo
 
+# --- stage headers with a module.modulemap -----------------------------------
+# For Swift to `import PokerSolverBinary` and see the C symbols, the
+# xcframework's Headers/ dir needs a module.modulemap defining a module
+# by the same name as the binary target. We stage a copy of include/
+# plus a generated module.modulemap into a temp dir and pass that to
+# xcodebuild.
+STAGED_HEADERS="$(mktemp -d -t poker-solver-xcf-headers.XXXXXX)"
+trap 'rm -rf "$STAGED_HEADERS"' EXIT
+cp "$HEADER_FILE" "$STAGED_HEADERS/solver.h"
+
+# module PokerSolverBinary { header "solver.h"; export * }
+# `link "solver_ffi"` is deliberately omitted: the xcframework's Info.plist
+# already declares libsolver_ffi.a as the BinaryPath/LibraryPath for this
+# slice, so SwiftPM (and Xcode) link it automatically when the target
+# depends on PokerSolverBinary.
+cat >"$STAGED_HEADERS/module.modulemap" <<'MODMAP'
+module PokerSolverBinary {
+    header "solver.h"
+    export *
+}
+MODMAP
+
 # --- build the .xcframework ---------------------------------------------------
 XCF_DIR="$BUNDLE_PARENT/PokerSolver.xcframework"
 rm -rf "$XCF_DIR"
 
-# xcodebuild -create-xcframework requires the headers dir to contain only
-# headers we want to expose. Our include/ already matches that shape.
 echo "--- xcodebuild -create-xcframework ---"
 xcodebuild -create-xcframework \
     -library "$STATIC_LIB" \
-    -headers "$HEADER_DIR" \
+    -headers "$STAGED_HEADERS" \
     -output "$XCF_DIR"
 
 # Sanity: the resulting xcframework must have an Info.plist referencing

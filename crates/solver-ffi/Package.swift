@@ -40,9 +40,11 @@ let package = Package(
         // The precompiled universal .xcframework produced by
         // scripts/build-xcframework.sh and attached to the GitHub Release.
         // SwiftPM downloads this lazily the first time `swift build` runs.
+        // The URL must be a `.zip` — `.tar.gz` is not accepted by
+        // `.binaryTarget(url:)` as of swift-tools-version 5.9.
         .binaryTarget(
             name: "PokerSolverBinary",
-            url: "https://github.com/HenrySchlesinger/poker-solver/releases/download/v0.1.0/PokerSolver-v0.1.0.xcframework.tar.gz",
+            url: "https://github.com/HenrySchlesinger/poker-solver/releases/download/v0.1.0/PokerSolver-v0.1.0.xcframework.zip",
             checksum: "FILL_AFTER_RELEASE"
         ),
         // Thin Swift wrapper. Re-exports PokerSolverBinary so consumers
