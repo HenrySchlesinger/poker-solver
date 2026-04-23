@@ -69,11 +69,12 @@ enum Cmd {
         /// Bet-tree profile. Only "default" is recognized in v0.1-wip.
         #[arg(long, default_value = "default")]
         bet_tree: String,
-        /// Solver implementation. `flat` (default) uses the flat-array
-        /// `RegretTables` + SIMD regret matching — the post-A64 fast
-        /// path. `classic` uses the `HashMap<InfoSetId, _>` reference
-        /// implementation; kept as an escape hatch for reproducibility.
-        #[arg(long, default_value = "flat")]
+        /// Solver implementation. `vector` (default) uses the post-A70
+        /// combo-axis-SIMD walker — ~10× faster than `flat` on NLHE
+        /// river spots. `flat` uses the A64 flat-array + SIMD regret
+        /// matching path. `classic` uses the `HashMap<InfoSetId, _>`
+        /// reference implementation; kept as an escape hatch.
+        #[arg(long, default_value = "vector")]
         solver: String,
     },
 

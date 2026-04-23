@@ -195,8 +195,9 @@ fn enumerate_walk<G: VectorGame>(
 
 /// Vector CFR+ solver.
 ///
-/// Owns the action-only game, the pre-sized [`VectorCfrTables`], and
-/// an iteration counter.
+/// Owns the action-only game, the pre-sized [`VectorCfrTables`], an
+/// iteration counter, and a depth-indexed scratch pool so the walker
+/// doesn't allocate per-recursion.
 pub struct CfrPlusVector<G: VectorGame> {
     game: G,
     tables: VectorCfrTables,
@@ -204,6 +205,72 @@ pub struct CfrPlusVector<G: VectorGame> {
     iteration: u32,
     /// Combo-axis width cache.
     combo_width: usize,
+    /// Depth-indexed scratch buffers. Grown on demand.
+    ///
+    /// At depth `d` the walker needs:
+    /// - `strategy_buf[d]`: `max_actions` rows of `combo_width` floats
+    ///   for the per-combo regret-matched strategy.
+    /// - `action_utils_buf[d]`: `max_actions` rows of `combo_width`.
+    /// - `node_util_buf[d]`: `combo_width` floats.
+    /// - `next_hero_reach_buf[d]`, `next_villain_reach_buf[d]`:
+    ///   `combo_width` each.
+    scratch: ScratchPool,
+    /// Maximum action count (stride of the `strategy_buf` /
+    /// `action_utils_buf` sub-tables per depth).
+    max_actions: usize,
+}
+
+/// Per-depth scratch pool. All buffers grow on demand; the recursion
+/// depth for NLHE v0.1 is bounded by the bet tree (~10 levels), so
+/// this amortizes to O(1) allocation over a full solve.
+struct ScratchPool {
+    /// `strategy[d * max_actions + a]` — `combo_width` floats.
+    strategy: Vec<Vec<f32>>,
+    /// `action_utils[d * max_actions + a]` — `combo_width` floats.
+    action_utils: Vec<Vec<f32>>,
+    /// `node_util[d]` — `combo_width` floats.
+    node_util: Vec<Vec<f32>>,
+    /// `next_hero_reach[d]` — `combo_width` floats.
+    next_hero_reach: Vec<Vec<f32>>,
+    /// `next_villain_reach[d]` — `combo_width` floats.
+    next_villain_reach: Vec<Vec<f32>>,
+    /// Initial reach vectors for the root; allocated once.
+    root_reach_hero: Vec<f32>,
+    root_reach_villain: Vec<f32>,
+    /// Out buffer for the root-level walk.
+    root_util: Vec<f32>,
+    combo_width: usize,
+    max_actions: usize,
+}
+
+impl ScratchPool {
+    fn new(combo_width: usize, max_actions: usize) -> Self {
+        Self {
+            strategy: Vec::new(),
+            action_utils: Vec::new(),
+            node_util: Vec::new(),
+            next_hero_reach: Vec::new(),
+            next_villain_reach: Vec::new(),
+            root_reach_hero: vec![0.0f32; combo_width],
+            root_reach_villain: vec![0.0f32; combo_width],
+            root_util: vec![0.0f32; combo_width],
+            combo_width,
+            max_actions,
+        }
+    }
+
+    /// Ensure depth `d` has scratch. Grows on demand. Idempotent.
+    fn ensure_depth(&mut self, d: usize) {
+        while self.node_util.len() <= d {
+            self.node_util.push(vec![0.0f32; self.combo_width]);
+            self.next_hero_reach.push(vec![0.0f32; self.combo_width]);
+            self.next_villain_reach.push(vec![0.0f32; self.combo_width]);
+            for _ in 0..self.max_actions {
+                self.strategy.push(vec![0.0f32; self.combo_width]);
+                self.action_utils.push(vec![0.0f32; self.combo_width]);
+            }
+        }
+    }
 }
 
 impl<G: VectorGame> CfrPlusVector<G> {
@@ -217,11 +284,15 @@ impl<G: VectorGame> CfrPlusVector<G> {
     pub fn with_descriptors(game: G, descriptors: &[VectorInfoSetDescriptor]) -> Self {
         let combo_width = game.combo_width();
         let tables = VectorCfrTables::new(descriptors, combo_width);
+        let max_actions = tables.max_actions();
+        let scratch = ScratchPool::new(combo_width, max_actions);
         Self {
             game,
             tables,
             iteration: 0,
             combo_width,
+            scratch,
+            max_actions,
         }
     }
 
@@ -256,32 +327,48 @@ impl<G: VectorGame> CfrPlusVector<G> {
     pub fn iterate(&mut self) {
         self.iteration = self.iteration.saturating_add(1);
 
-        for &update_player in &[Player::Hero, Player::Villain] {
-            let mut reach_hero = vec![0.0f32; self.combo_width];
-            let mut reach_villain = vec![0.0f32; self.combo_width];
-            self.game.initial_reach(Player::Hero, &mut reach_hero);
-            self.game.initial_reach(Player::Villain, &mut reach_villain);
+        // Seed root reach vectors (reused across walks this iteration).
+        self.game
+            .initial_reach(Player::Hero, &mut self.scratch.root_reach_hero);
+        self.game
+            .initial_reach(Player::Villain, &mut self.scratch.root_reach_villain);
 
-            let root = self.game.root();
-            let mut util = vec![0.0f32; self.combo_width];
-            self.walk(&root, update_player, &reach_hero, &reach_villain, &mut util);
+        let root = self.game.root();
+
+        for &update_player in &[Player::Hero, Player::Villain] {
+            // `mem::take` the root buffers out so the walker can take
+            // &mut self; restore on return.
+            let reach_hero = std::mem::take(&mut self.scratch.root_reach_hero);
+            let reach_villain = std::mem::take(&mut self.scratch.root_reach_villain);
+            let mut util = std::mem::take(&mut self.scratch.root_util);
+
+            self.walk(
+                0,
+                &root,
+                update_player,
+                &reach_hero,
+                &reach_villain,
+                &mut util,
+            );
+
+            self.scratch.root_reach_hero = reach_hero;
+            self.scratch.root_reach_villain = reach_villain;
+            self.scratch.root_util = util;
         }
     }
 
     /// Vector CFR+ tree walk.
     ///
+    /// - `depth` — recursion depth; indexes into the scratch pool.
     /// - `state` — current node.
-    /// - `update_player` — the player whose regrets we update on this walk.
+    /// - `update_player` — which player's regrets this walk updates.
     /// - `reach_hero` / `reach_villain` — per-combo reach vectors at
     ///   this node (initial_reach × strategy products on the path).
-    /// - `out_util` — scratch buffer the walker writes `update_player`'s
-    ///   per-combo subtree counterfactual value into. Counterfactual
-    ///   means: the expected utility for `update_player` with combo
-    ///   `c`, already reach-weighted by the opponent (NOT by
-    ///   `update_player`'s own reach or by `update_player`'s past
-    ///   strategy).
+    /// - `out_util` — buffer the walker writes `update_player`'s
+    ///   per-combo subtree counterfactual value into.
     fn walk(
         &mut self,
+        depth: usize,
         state: &G::State,
         update_player: Player,
         reach_hero: &[f32],
@@ -316,126 +403,125 @@ impl<G: VectorGame> CfrPlusVector<G> {
             .index_of(info_set_id)
             .expect("CfrPlusVector::walk: unknown info set");
 
-        // Regret-match the current strategy into per-action combo-wide
-        // scratch. One SIMD-vectorized call across 1326 lanes.
-        let strategy: Vec<Vec<f32>> = {
+        // Ensure this depth's scratch exists (grows on demand; amortized
+        // O(1) over a full solve).
+        self.scratch.ensure_depth(depth);
+        let cw = self.combo_width;
+        let strat_base = depth * self.max_actions;
+        let au_base = depth * self.max_actions;
+
+        // Regret-match into the scratch strategy rows.
+        {
             let regret_rows = self.tables.regret_rows(idx);
-            let refs: SmallVec<[&[f32]; MAX_INLINE_ACTIONS]> =
+            let regret_refs: SmallVec<[&[f32]; MAX_INLINE_ACTIONS]> =
                 regret_rows.iter().copied().collect();
-            let mut strat_buf: Vec<Vec<f32>> = (0..num_actions)
-                .map(|_| vec![0.0f32; self.combo_width])
-                .collect();
-            {
-                let mut strat_refs: SmallVec<[&mut [f32]; MAX_INLINE_ACTIONS]> =
-                    strat_buf.iter_mut().map(|v| v.as_mut_slice()).collect();
-                regret_match_simd_vector(&refs, &mut strat_refs);
+            let strat_slice = &mut self.scratch.strategy[strat_base..strat_base + num_actions];
+            let mut strat_refs: SmallVec<[&mut [f32]; MAX_INLINE_ACTIONS]> = SmallVec::new();
+            for row in strat_slice.iter_mut() {
+                strat_refs.push(row.as_mut_slice());
             }
-            strat_buf
-        };
+            regret_match_simd_vector(&regret_refs, &mut strat_refs);
+        }
 
-        // Recurse over each action. For each, propagate the current
-        // player's reach through the strategy on lane `c`:
-        //   - If current == Hero: next_hero_reach[c] = reach_hero[c] * strategy[a][c]
-        //   - If current == Villain: next_villain_reach[c] = reach_villain[c] * strategy[a][c]
-        //
-        // The other player's reach is unchanged. We recurse and the child
-        // returns action_util[a][c] = counterfactual value of the subtree
-        // for update_player at their combo c, which already has the
-        // opponent's reach multiplied in via the terminal.
-        let mut action_utils: Vec<Vec<f32>> = (0..num_actions)
-            .map(|_| vec![0.0f32; self.combo_width])
-            .collect();
-        let mut node_util = vec![0.0f32; self.combo_width];
+        // Take scratch out so we can re-borrow self mutably inside the
+        // recursive calls.
+        let mut strategy_take: SmallVec<[Vec<f32>; MAX_INLINE_ACTIONS]> = SmallVec::new();
+        let mut au_take: SmallVec<[Vec<f32>; MAX_INLINE_ACTIONS]> = SmallVec::new();
+        for i in 0..num_actions {
+            strategy_take.push(std::mem::take(&mut self.scratch.strategy[strat_base + i]));
+            au_take.push(std::mem::take(&mut self.scratch.action_utils[au_base + i]));
+        }
+        let mut node_util_take = std::mem::take(&mut self.scratch.node_util[depth]);
+        let mut next_hero_take = std::mem::take(&mut self.scratch.next_hero_reach[depth]);
+        let mut next_villain_take = std::mem::take(&mut self.scratch.next_villain_reach[depth]);
 
-        let mut next_hero_reach = vec![0.0f32; self.combo_width];
-        let mut next_villain_reach = vec![0.0f32; self.combo_width];
+        for slot in node_util_take.iter_mut() {
+            *slot = 0.0;
+        }
 
         for (i, action) in actions.iter().enumerate() {
             let next = self.game.apply(state, action);
-            let p = &strategy[i];
+            let p = &strategy_take[i];
             match current {
                 Player::Hero => {
-                    for (c, slot) in next_hero_reach.iter_mut().enumerate() {
+                    for (c, slot) in next_hero_take.iter_mut().enumerate() {
                         *slot = reach_hero[c] * p[c];
                     }
-                    next_villain_reach.copy_from_slice(reach_villain);
+                    next_villain_take.copy_from_slice(reach_villain);
+                    self.walk(
+                        depth + 1,
+                        &next,
+                        update_player,
+                        &next_hero_take,
+                        &next_villain_take,
+                        &mut au_take[i],
+                    );
                 }
                 Player::Villain => {
-                    for (c, slot) in next_villain_reach.iter_mut().enumerate() {
+                    for (c, slot) in next_villain_take.iter_mut().enumerate() {
                         *slot = reach_villain[c] * p[c];
                     }
-                    next_hero_reach.copy_from_slice(reach_hero);
+                    next_hero_take.copy_from_slice(reach_hero);
+                    self.walk(
+                        depth + 1,
+                        &next,
+                        update_player,
+                        &next_hero_take,
+                        &next_villain_take,
+                        &mut au_take[i],
+                    );
                 }
             }
-            self.walk(
-                &next,
-                update_player,
-                &next_hero_reach,
-                &next_villain_reach,
-                &mut action_utils[i],
-            );
 
-            // node_util aggregation:
-            //   * At the UPDATE player's own node: node_util[c] =
-            //     Σ_a strategy[a][c] * action_util[a][c] (i.e.,
-            //     "following σ for update_player with combo c").
-            //   * At the NON-update player's node: node_util[c] =
-            //     Σ_a action_util[a][c] — no strategy factor, because
-            //     the non-update player's strategy has already been
-            //     folded into their reach propagation, and the child
-            //     walks have baked it into the terminal integration
-            //     via `reach_opp`. See module docs for the derivation.
-            //
-            // This split is the load-bearing part of the per-node
-            // CFR math; a uniform `p[c] * action_util[a][c]` at the
-            // non-update node would double-count the strategy factor
-            // and diverge from Nash.
+            // node_util aggregation: see module docs.
+            let au = &au_take[i];
             if current == update_player {
-                for (c, slot) in node_util.iter_mut().enumerate() {
-                    *slot += p[c] * action_utils[i][c];
+                for (c, slot) in node_util_take.iter_mut().enumerate() {
+                    *slot += p[c] * au[c];
                 }
             } else {
-                for (c, slot) in node_util.iter_mut().enumerate() {
-                    *slot += action_utils[i][c];
+                for (c, slot) in node_util_take.iter_mut().enumerate() {
+                    *slot += au[c];
                 }
             }
         }
 
-        out_util.copy_from_slice(&node_util);
+        out_util.copy_from_slice(&node_util_take);
 
-        // Regret / strategy-sum updates only at update-player nodes.
+        // Regret + strategy_sum updates at update_player's own nodes.
         if current == update_player {
             let own_reach: &[f32] = match update_player {
                 Player::Hero => reach_hero,
                 Player::Villain => reach_villain,
             };
             let linear_weight = self.iteration as f32;
-            let cw = self.combo_width;
 
-            // Regret update: regret[a][c] += action_util[a][c] -
-            // node_util[c]. The opponent-reach (counterfactual) factor
-            // is already baked into both action_util and node_util via
-            // the terminal's `reach_opp` weighting, so no cf_reach
-            // multiplication is needed here. See the module docs for
-            // the derivation.
             let regret_rows = self.tables.regret_rows_mut(idx);
             for (a_idx, row) in regret_rows.into_iter().enumerate() {
-                let au = &action_utils[a_idx];
+                let au = &au_take[a_idx];
                 for c in 0..cw {
-                    let raw = row[c] + (au[c] - node_util[c]);
+                    let raw = row[c] + (au[c] - node_util_take[c]);
                     row[c] = if raw > 0.0 { raw } else { 0.0 };
                 }
             }
-
-            // Strategy-sum: linearly-weighted, scaled by own reach and
-            // the per-combo strategy probability.
             let strategy_rows = self.tables.strategy_sum_rows_mut(idx);
             for (a_idx, row) in strategy_rows.into_iter().enumerate() {
-                let s = &strategy[a_idx];
+                let s = &strategy_take[a_idx];
                 for c in 0..cw {
                     row[c] += linear_weight * own_reach[c] * s[c];
                 }
             }
+        }
+
+        // Put scratch back so the next call at this depth can reuse.
+        self.scratch.node_util[depth] = node_util_take;
+        self.scratch.next_hero_reach[depth] = next_hero_take;
+        self.scratch.next_villain_reach[depth] = next_villain_take;
+        for (i, v) in au_take.into_iter().enumerate() {
+            self.scratch.action_utils[au_base + i] = v;
+        }
+        for (i, v) in strategy_take.into_iter().enumerate() {
+            self.scratch.strategy[strat_base + i] = v;
         }
     }
 

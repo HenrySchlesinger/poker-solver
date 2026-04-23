@@ -12,8 +12,10 @@ pub mod flop_cache;
 pub mod preflop;
 pub mod range;
 pub mod subgame;
+pub mod subgame_vector;
 
 pub use action::{Action, ActionLog, Street};
 pub use bet_tree::BetTree;
 pub use range::Range;
 pub use subgame::NlheSubgame;
+pub use subgame_vector::{ActionState, NlheSubgameVector};

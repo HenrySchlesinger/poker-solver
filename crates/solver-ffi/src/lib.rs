@@ -17,13 +17,12 @@
 use std::panic::{self, catch_unwind, AssertUnwindSafe};
 use std::time::Instant;
 
-use solver_core::{CfrPlusFlat, Game, Player, Strategy};
+use solver_core::{CfrPlusVector, Player, VectorGame};
 use solver_eval::card::Card;
 use solver_eval::combo::NUM_COMBOS;
 use solver_eval::Board;
 use solver_nlhe::action::Action;
-use solver_nlhe::subgame::SubgameState;
-use solver_nlhe::{BetTree, NlheSubgame, Range};
+use solver_nlhe::{BetTree, NlheSubgameVector, Range};
 
 /// Default CFR+ iteration count for the FFI `solver_solve` entry point.
 ///
@@ -391,12 +390,25 @@ fn solve_on_worker(parsed: ParsedInputs) -> Result<SolveOutcome, SolverStatus> {
 /// Runs on the large-stack worker spawned by `solve_on_worker`.
 fn run_cfr(parsed: &ParsedInputs) -> Result<SolveOutcome, SolverStatus> {
     // River-only guard is already in `validate_input`; we assert here
-    // defensively because `NlheSubgame::new` panics on `len != 5`.
+    // defensively because `NlheSubgameVector::new` panics on `len != 5`.
     if parsed.board.len != 5 {
         return Err(SolverStatus::InvalidInput);
     }
 
-    let subgame = NlheSubgame::new(
+    // Range-vs-range equity.
+    let hero_equity = solver_eval::equity::range_vs_range_equity(
+        &parsed.hero.weights,
+        &parsed.villain.weights,
+        &parsed.board,
+        1,
+    );
+
+    // Post-A70: default to `CfrPlusVector` (combo-axis-SIMD walk, ~10×
+    // faster than A64's flat path on NLHE river spots). The vector
+    // subgame handles its own chance-layer integration via the
+    // showdown-sign matrix + per-combo reach vectors; no explicit
+    // `chance_roots` enumeration needed by the FFI layer.
+    let vector_subgame = NlheSubgameVector::new(
         parsed.board,
         parsed.hero.clone(),
         parsed.villain.clone(),
@@ -406,35 +418,22 @@ fn run_cfr(parsed: &ParsedInputs) -> Result<SolveOutcome, SolverStatus> {
         parsed.bet_tree.clone(),
     );
 
-    let roots = subgame.chance_roots();
-    if roots.is_empty() {
-        // Ranges conflict with the board or with each other — CFR has
-        // nothing to solve. Caller error, not an internal failure.
+    // Check that at least one valid (hero, villain) combo pair exists.
+    // If ranges fully conflict with the board or each other, there's
+    // nothing to solve.
+    if vector_subgame.hero_active().is_empty() || vector_subgame.villain_active().is_empty() {
         return Err(SolverStatus::InvalidInput);
     }
 
-    // Range-vs-range equity. Computed against the parsed ranges (the
-    // subgame holds identical copies internally). `samples` is ignored
-    // on a 5-card board (exact enumeration).
-    let hero_equity = solver_eval::equity::range_vs_range_equity(
-        &parsed.hero.weights,
-        &parsed.villain.weights,
-        &parsed.board,
-        1,
-    );
+    let mut solver = CfrPlusVector::new(vector_subgame);
+    solver.run(DEFAULT_ITERATIONS);
 
-    // Post-A64: default to `CfrPlusFlat` (flat `RegretTables` + SIMD
-    // regret matching). Convergence is guarded by
-    // `solver-core/tests/flat_equivalence.rs` on Kuhn, and by the e2e
-    // JSON tests in solver-cli for NLHE river. Info-set enumeration at
-    // `from_roots` construction is a few ms on an NLHE river subgame,
-    // amortized across `DEFAULT_ITERATIONS` CFR iterations.
-    let mut solver = CfrPlusFlat::from_roots(subgame, &roots);
-    solver.run_from(&roots, DEFAULT_ITERATIONS);
-
-    let exploitability = solver.exploitability();
-    let avg_strategy = solver.average_strategy();
-    let (labels, freq, ev) = aggregate_root_strategy_and_ev(solver.game(), &avg_strategy, &roots);
+    // Exploitability: vector solver doesn't have a root-aware
+    // convergence helper; emit NaN per the v0.1 `docs/EXPLOITABILITY_TRIAGE.md`
+    // sentinel convention. The FFI struct's `exploitability` field
+    // documents this.
+    let exploitability = f32::NAN;
+    let (labels, freq, ev) = aggregate_root_strategy_and_ev_vector(solver.game(), &solver);
 
     Ok(SolveOutcome {
         action_labels: labels,
@@ -447,108 +446,52 @@ fn run_cfr(parsed: &ParsedInputs) -> Result<SolveOutcome, SolverStatus> {
     })
 }
 
-/// Aggregate the per-combo-pair root strategy into a single action
-/// frequency vector, and compute EV per action.
-///
-/// Mirrors `solver-cli::solve_cmd::aggregate_root_strategy_and_ev` — the
-/// two paths *must* agree numerically on the canonical spot, so the
-/// aggregation formulas need to be identical.
-fn aggregate_root_strategy_and_ev(
-    game: &NlheSubgame,
-    avg_strategy: &Strategy,
-    roots: &[(SubgameState, f32)],
+/// Aggregate per-combo root strategy from the vector solver into a
+/// single action-frequency vector. EVs are currently stubbed to zero
+/// (v0.2 TODO; the frequencies are the primary user-visible output).
+fn aggregate_root_strategy_and_ev_vector(
+    game: &NlheSubgameVector,
+    solver: &CfrPlusVector<NlheSubgameVector>,
 ) -> (Vec<String>, Vec<f32>, Vec<f32>) {
-    let Some((first_root, _)) = roots.first() else {
-        return (Vec::new(), Vec::new(), Vec::new());
-    };
-    let root_actions = game.legal_actions(first_root);
+    let root = game.root();
+    let root_actions: Vec<Action> = game.legal_actions(&root).to_vec();
     let num_actions = root_actions.len();
     let labels: Vec<String> = root_actions.iter().map(action_label).collect();
 
-    let first_to_act = game.current_player(first_root);
+    if num_actions == 0 {
+        return (labels, Vec::new(), Vec::new());
+    }
 
+    let first_to_act = game.current_player(&root);
+    let info_id = game.info_set_id(&root, first_to_act);
+    let Some(per_combo) = solver.per_combo_average_strategy(info_id) else {
+        let uniform = 1.0 / num_actions as f32;
+        let freq = vec![uniform; num_actions];
+        let ev = vec![0.0f32; num_actions];
+        return (labels, freq, ev);
+    };
+
+    let range = game.hero_range();
     let mut freq_acc = vec![0.0_f64; num_actions];
-    let mut ev_acc = vec![0.0_f64; num_actions];
     let mut total_weight = 0.0_f64;
-
-    for (root_state, weight) in roots {
-        let w = *weight as f64;
+    for &h in game.hero_active() {
+        let w = range.weights[h as usize] as f64;
         if w == 0.0 {
             continue;
         }
-
-        let info = game.info_set(root_state, first_to_act);
-        let uniform_fallback: Vec<f32>;
-        let strat: &[f32] = match avg_strategy.get(info) {
-            Some(s) => s,
-            None => {
-                uniform_fallback = vec![1.0 / num_actions as f32; num_actions];
-                &uniform_fallback
-            }
-        };
-        debug_assert_eq!(strat.len(), num_actions);
-
-        for (i, action) in root_actions.iter().enumerate() {
-            let next = game.apply(root_state, action);
-            let child_ev = subtree_ev_under_avg_strategy(game, &next, avg_strategy, first_to_act);
-            ev_acc[i] += w * child_ev as f64;
-            freq_acc[i] += w * strat[i] as f64;
+        for i in 0..num_actions {
+            freq_acc[i] += w * per_combo[i][h as usize] as f64;
         }
         total_weight += w;
     }
-
     if total_weight > 0.0 {
         for f in &mut freq_acc {
             *f /= total_weight;
         }
-        for ev in &mut ev_acc {
-            *ev /= total_weight;
-        }
     }
-
-    let freq = freq_acc.iter().map(|f| *f as f32).collect();
-    let ev = ev_acc.iter().map(|e| *e as f32).collect();
+    let freq: Vec<f32> = freq_acc.iter().map(|f| *f as f32).collect();
+    let ev = vec![0.0f32; num_actions];
     (labels, freq, ev)
-}
-
-/// Expected utility for `player` at `state` under the average strategy.
-///
-/// Mirrors `solver-cli::solve_cmd::subtree_ev_under_avg_strategy` —
-/// both paths must agree on numerics, so the formulas are identical.
-fn subtree_ev_under_avg_strategy(
-    game: &NlheSubgame,
-    state: &SubgameState,
-    avg_strategy: &Strategy,
-    player: Player,
-) -> f32 {
-    if game.is_terminal(state) {
-        return game.utility(state, player);
-    }
-    let current = game.current_player(state);
-    let actions = game.legal_actions(state);
-    let n = actions.len();
-    debug_assert!(n > 0, "non-terminal with no legal actions");
-
-    let info = game.info_set(state, current);
-    let uniform_fallback: Vec<f32>;
-    let strat: &[f32] = match avg_strategy.get(info) {
-        Some(s) => s,
-        None => {
-            uniform_fallback = vec![1.0 / n as f32; n];
-            &uniform_fallback
-        }
-    };
-
-    let mut val = 0.0_f32;
-    for (i, action) in actions.iter().enumerate() {
-        let p = strat[i];
-        if p == 0.0 {
-            continue;
-        }
-        let next = game.apply(state, action);
-        val += p * subtree_ev_under_avg_strategy(game, &next, avg_strategy, player);
-    }
-    val
 }
 
 /// Human-readable label for an action. Mirrors the CLI's

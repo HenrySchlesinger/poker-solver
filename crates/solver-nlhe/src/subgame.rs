@@ -206,6 +206,35 @@ impl NlheSubgame {
         &self.bet_tree
     }
 
+    /// Pot size at the start of the river (= end of the turn).
+    /// Read-only accessor for the `NlheVectorSubgame` adapter.
+    pub fn pot_start(&self) -> u32 {
+        self.pot_start
+    }
+
+    /// Effective stack at the start of the river.
+    /// Read-only accessor for the `NlheVectorSubgame` adapter.
+    pub fn stack_start(&self) -> u32 {
+        self.stack_start
+    }
+
+    /// Which player opens the river.
+    /// Read-only accessor for the `NlheVectorSubgame` adapter.
+    pub fn first_to_act(&self) -> Player {
+        self.first_to_act
+    }
+
+    /// Borrow the precomputed `NUM_COMBOS × NUM_COMBOS` showdown-sign
+    /// matrix. Used by `NlheVectorSubgame` to compute terminal
+    /// showdown utilities without rebuilding the matrix. Each entry is
+    /// `+1` / `0` / `-1` per the definition in the `showdown_sign`
+    /// field doc.
+    pub fn showdown_matrix(
+        &self,
+    ) -> &[[i8; solver_eval::combo::NUM_COMBOS]; solver_eval::combo::NUM_COMBOS] {
+        &self.showdown_sign
+    }
+
     /// Returns the (hero_street_chips, villain_street_chips) committed
     /// so far on the river for `state`.
     ///

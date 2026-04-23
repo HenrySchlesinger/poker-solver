@@ -1178,6 +1178,7 @@ dependencies = [
  "solver-core",
  "solver-eval",
  "thiserror 1.0.69",
+ "wide",
  "zstd",
 ]
 

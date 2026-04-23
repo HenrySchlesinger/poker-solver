@@ -17,6 +17,10 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 smallvec = { workspace = true }
 bytemuck = { workspace = true }
+# Portable SIMD for the vector-CFR showdown matmul in subgame_vector.rs.
+# Same `wide = "0.7"` that solver-core uses; lines up with its NEON/AVX
+# backends on Apple Silicon and x86, scalar fallback elsewhere.
+wide = "0.7"
 # Cache compression (A33). Used by `preflop.rs` and `flop_cache.rs` for
 # the optional compressed write/load paths. Default features disabled to
 # drop the tokio layer — we only need the sync codec.

@@ -58,6 +58,10 @@ name = "river"
 harness = false
 
 [[bench]]
+name = "river_vector"
+harness = false
+
+[[bench]]
 name = "regret_matching"
 harness = false
 
