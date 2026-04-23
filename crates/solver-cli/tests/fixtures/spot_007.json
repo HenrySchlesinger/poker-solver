@@ -1,0 +1,22 @@
+{
+  "id": "spot_007",
+  "name": "Wet QJT two-tone, BTN SRP",
+  "description": "Broadway straight ladder, two-tone hearts. All top-pair hands from JJ/QQ down plus straight draws with AK/9x. QQ makes top set, but TT/JJ also make sets on a board that gives every broadway made straight. Tests the solver's handling of overlapping made-hand tiers. Hero = BTN, villain = BB.",
+  "street": "flop",
+  "input": {
+    "board": "QhJhTs",
+    "hero_range": "22+, A2s, A3s, A4s, A5s, A6s, A7s, A8s, A9s, ATs, AJs, AQs, AKs, K9s, KTs, KJs, KQs, Q9s, QTs, QJs, J9s, JTs, T9s, 98s, 87s, 76s, 65s, A9o, ATo, AJo, AQo, AKo, KTo, KJo, KQo, QTo, QJo, JTo",
+    "villain_range": "55-TT, A2s, A3s, A4s, A5s, A6s, A7s, A8s, A9s, ATs, AJs, AQs, AKs, K2s, K3s, K4s, K5s, K6s, K7s, K8s, K9s, KTs, KJs, KQs, Q7s, Q8s, Q9s, QTs, QJs, J8s, J9s, JTs, T7s, T8s, T9s, 97s, 98s, 86s, 87s, 75s, 76s, 64s, 65s, 53s, 54s, A9o, ATo, AJo, AQo, AKo, KTo, KJo, KQo, QTo, QJo, JTo",
+    "pot": 60,
+    "effective_stack": 970,
+    "to_act": "hero",
+    "bet_tree": "default_v0_1"
+  },
+  "iterations": 1000,
+  "tolerances": {
+    "action_freq_abs": 0.05,
+    "ev_bb_abs": 0.10
+  },
+  "expected_reference": "texassolver",
+  "expected_notes": "Populated by differential run. Both ranges interact heavily with this board — expect small check frequencies and aggressive lines with sets / straights / heart draws."
+}

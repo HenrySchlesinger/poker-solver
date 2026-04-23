@@ -1,0 +1,22 @@
+{
+  "id": "spot_006",
+  "name": "Wet 987 two-tone, BTN SRP",
+  "description": "Low-connected two-tone board. Tons of straight-draw combinations (JT, TJ, 65, T6, T5, 6x), flush draws with any heart. Unlike JT9, here the made-hand equity is shifted down-range: hero's premiums (AA/KK) are reduced to one pair, whereas T8/T7/98 make big pairs/top two. Hero = BTN, villain = BB.",
+  "street": "flop",
+  "input": {
+    "board": "9h8h7c",
+    "hero_range": "22+, A2s, A3s, A4s, A5s, A6s, A7s, A8s, A9s, ATs, AJs, AQs, AKs, K9s, KTs, KJs, KQs, Q9s, QTs, QJs, J9s, JTs, T9s, 98s, 87s, 76s, 65s, A9o, ATo, AJo, AQo, AKo, KTo, KJo, KQo, QTo, QJo, JTo",
+    "villain_range": "55-TT, A2s, A3s, A4s, A5s, A6s, A7s, A8s, A9s, ATs, AJs, AQs, AKs, K2s, K3s, K4s, K5s, K6s, K7s, K8s, K9s, KTs, KJs, KQs, Q7s, Q8s, Q9s, QTs, QJs, J8s, J9s, JTs, T7s, T8s, T9s, 97s, 98s, 86s, 87s, 75s, 76s, 64s, 65s, 53s, 54s, A9o, ATo, AJo, AQo, AKo, KTo, KJo, KQo, QTo, QJo, JTo",
+    "pot": 60,
+    "effective_stack": 970,
+    "to_act": "hero",
+    "bet_tree": "default_v0_1"
+  },
+  "iterations": 1000,
+  "tolerances": {
+    "action_freq_abs": 0.05,
+    "ev_bb_abs": 0.10
+  },
+  "expected_reference": "texassolver",
+  "expected_notes": "Populated by differential run. Low-straight boards favor BB's range; expect BTN to check often with air and AKo-style overcards."
+}

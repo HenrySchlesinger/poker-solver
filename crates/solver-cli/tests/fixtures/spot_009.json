@@ -1,0 +1,22 @@
+{
+  "id": "spot_009",
+  "name": "Paired 883 rainbow, BTN SRP",
+  "description": "Small paired board. Hands with an 8 make trips (98s, 87s, 86s, 8x in offsuit); sets with 33 are trips; 88 is quads; overpairs hold. Most of hero's range is one-pair or overcards. Tests paired-board trip/kicker dynamics. Hero = BTN, villain = BB.",
+  "street": "flop",
+  "input": {
+    "board": "8h8c3d",
+    "hero_range": "22+, A2s, A3s, A4s, A5s, A6s, A7s, A8s, A9s, ATs, AJs, AQs, AKs, K9s, KTs, KJs, KQs, Q9s, QTs, QJs, J9s, JTs, T9s, 98s, 87s, 76s, 65s, A9o, ATo, AJo, AQo, AKo, KTo, KJo, KQo, QTo, QJo, JTo",
+    "villain_range": "55-TT, A2s, A3s, A4s, A5s, A6s, A7s, A8s, A9s, ATs, AJs, AQs, AKs, K2s, K3s, K4s, K5s, K6s, K7s, K8s, K9s, KTs, KJs, KQs, Q7s, Q8s, Q9s, QTs, QJs, J8s, J9s, JTs, T7s, T8s, T9s, 97s, 98s, 86s, 87s, 75s, 76s, 64s, 65s, 53s, 54s, A9o, ATo, AJo, AQo, AKo, KTo, KJo, KQo, QTo, QJo, JTo",
+    "pot": 60,
+    "effective_stack": 970,
+    "to_act": "hero",
+    "bet_tree": "default_v0_1"
+  },
+  "iterations": 1000,
+  "tolerances": {
+    "action_freq_abs": 0.05,
+    "ev_bb_abs": 0.10
+  },
+  "expected_reference": "texassolver",
+  "expected_notes": "Populated by differential run. Paired boards traditionally have high c-bet frequency (air has equity turned into a bluff); check consistency."
+}
