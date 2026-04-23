@@ -46,7 +46,9 @@
 #![allow(clippy::approx_constant)]
 
 use std::path::PathBuf;
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
@@ -117,10 +119,20 @@ fn solver_cli_release_path() -> PathBuf {
     bin
 }
 
-/// Invoke the CLI with the canonical spot and return its raw Output.
+/// Wall-clock bound on the CLI subprocess during this test. If the CLI
+/// takes longer than this — the typical sign is a runaway CFR walk
+/// exhausting memory on the river spot — we kill the child and report a
+/// blocked-upstream failure rather than letting the test hang for
+/// hundreds of seconds. `cargo test` enforces no timeout on its own.
+const CLI_TIMEOUT_SEC: u64 = 60;
+
+/// Invoke the CLI with the canonical spot and return its raw Output, or a
+/// synthetic "timed out" `Output` if the child didn't finish in
+/// `CLI_TIMEOUT_SEC` seconds. The latter signals an upstream blocker and
+/// is handled by `parse_cli_json` with a targeted error message.
 fn run_cli_solve() -> Output {
     let bin = solver_cli_release_path();
-    Command::new(&bin)
+    let mut child = Command::new(&bin)
         .args([
             "solve",
             "--board",
@@ -136,12 +148,69 @@ fn run_cli_solve() -> Output {
             "--iterations",
             &ITERATIONS.to_string(),
         ])
-        .output()
-        .unwrap_or_else(|e| panic!("failed to spawn {}: {e}", bin.display()))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("failed to spawn {}: {e}", bin.display()));
+
+    // Poll for completion up to CLI_TIMEOUT_SEC. If the child is still
+    // running at the deadline, SIGKILL it and return a synthetic Output
+    // with an exit code of 137 (SIGKILL) so the caller can distinguish
+    // "solver took too long / OOM'd" from "solver errored cleanly".
+    let deadline = Instant::now() + Duration::from_secs(CLI_TIMEOUT_SEC);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_status)) => {
+                // Finished — drain its output.
+                return child.wait_with_output().unwrap_or_else(|e| {
+                    panic!("failed to read {}'s output after exit: {e}", bin.display())
+                });
+            }
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    // Return a stub Output indicating the killed state.
+                    // We can't construct an Output directly from outside
+                    // its crate, so run a trivially-failing process to
+                    // produce one. `false` exits 1, then we override the
+                    // stderr via a wrapper — but that's fragile. Cleaner:
+                    // call `exit 137` via sh. macOS `sh -c 'exit 137'`
+                    // returns an ExitStatus whose code is 137.
+                    let synth = Command::new("sh")
+                        .args(["-c", "exit 137"])
+                        .output()
+                        .expect("shell to produce Output");
+                    return Output {
+                        status: synth.status,
+                        stdout: Vec::new(),
+                        stderr: format!(
+                            "solver-cli exceeded {CLI_TIMEOUT_SEC}s deadline \
+                             on the canonical spot — test watchdog killed it"
+                        )
+                        .into_bytes(),
+                    };
+                }
+                thread::sleep(Duration::from_millis(250));
+            }
+            Err(e) => panic!("error polling {}: {e}", bin.display()),
+        }
+    }
 }
 
 /// Parse the CLI's stdout into a `serde_json::Value`, failing loudly with
 /// the raw output (on stdout AND stderr) if parsing fails.
+///
+/// Failure modes and what they usually mean, as of 2026-04-23:
+///
+/// - exit code 137 (SIGKILL) or exit code 124 (our watchdog): the CFR walk
+///   ran out of memory or exceeded `CLI_TIMEOUT_SEC`. The CLI's
+///   `build_subgame` is wired to `NlheSubgame::new` (A47 landed) but the
+///   solver-core CFR implementation is blowing up on the canonical
+///   river-with-5-combos spot. This is the current v0.1 blocker.
+/// - non-zero exit with a readable stderr message: likely a parse error
+///   in the inputs or an explicit `anyhow::bail!` somewhere upstream.
+/// - exit 0 but invalid JSON: a JSON emitter regression.
 fn parse_cli_json(out: &Output) -> Value {
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -153,10 +222,12 @@ fn parse_cli_json(out: &Output) -> Value {
          ---- stderr ----\n{}\n\
          ---- stdout ----\n{}\n\
          \n\
-         This failure means the CLI's `build_subgame` is still returning \
-         the blocked-upstream error. Wire `NlheSubgame::new` into \
-         `crates/solver-cli/src/solve_cmd.rs::build_subgame` and the CLI \
-         path will come online.",
+         If the exit is 137 (SIGKILL) or 124 (watchdog timeout), the CFR \
+         walk is the blocker: `solver_core::CfrPlus::run_from` is \
+         exhausting memory or running forever on the canonical river \
+         spot. See crates/solver-core/ for the main-path fix. If the \
+         exit is something else, the error message above should name \
+         the actual failure.",
         out.status,
         stderr,
         stdout,
