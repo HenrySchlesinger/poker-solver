@@ -146,6 +146,24 @@ pub extern "C" fn solver_free(handle: *mut SolverHandle) {
 /// - v0.1: callers should set stack=0 or small values until A58's AllIn
 ///   fix lands; larger stacks can expose an unbounded-tree bug in the
 ///   river bet tree.
+///
+/// # Safety
+///
+/// `input` and `output` must either be null or point to a valid,
+/// correctly-aligned `HandState` / `SolveResult` respectively. The
+/// function null-checks them before dereferencing and returns
+/// `InvalidInput` on null — any other invalid pointer (dangling,
+/// misaligned, wrong size) is undefined behavior. This matches the C
+/// ABI contract the cbindgen-generated `solver.h` documents.
+// Clippy (not_unsafe_ptr_arg_deref) would like this marked `unsafe`. We
+// deliberately keep it safe-callable because:
+//   1. The C ABI does not distinguish safe vs unsafe — Swift/C callers
+//      see the same symbol either way.
+//   2. Every pointer deref is guarded by an explicit null check and
+//      lives inside an `unsafe { … }` block with a SAFETY comment.
+//   3. The documented C contract puts the burden of validity on the
+//      caller, which is standard for extern "C" entry points.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
 pub extern "C" fn solver_solve(
     _handle: *mut SolverHandle,
@@ -286,10 +304,7 @@ fn validate_input(hs: &HandState) -> Result<ParsedInputs, SolverStatus> {
             }
         }
     }
-    let board = Board {
-        cards,
-        len: 5,
-    };
+    let board = Board { cards, len: 5 };
 
     // Ranges: copy the 1326 weights out of the FFI struct into owned
     // `Range` instances. Reject ranges with no non-zero weights — CFR
@@ -404,8 +419,7 @@ fn run_cfr(parsed: &ParsedInputs) -> Result<SolveOutcome, SolverStatus> {
 
     let exploitability = solver.exploitability();
     let avg_strategy = solver.average_strategy();
-    let (labels, freq, ev) =
-        aggregate_root_strategy_and_ev(solver.game(), &avg_strategy, &roots);
+    let (labels, freq, ev) = aggregate_root_strategy_and_ev(solver.game(), &avg_strategy, &roots);
 
     Ok(SolveOutcome {
         action_labels: labels,
