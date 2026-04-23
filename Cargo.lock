@@ -1127,6 +1127,8 @@ dependencies = [
  "rand_xoshiro",
  "rayon",
  "smallvec",
+ "solver-eval",
+ "solver-nlhe",
  "thiserror 1.0.69",
  "wide",
 ]
