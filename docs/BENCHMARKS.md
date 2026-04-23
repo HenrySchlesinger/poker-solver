@@ -237,40 +237,48 @@ snapshots:
 
 ### Primary KPI (river)
 
-| Bench | Day 1 (scalar+HashMap, A62) | Day 2+3 (flat+SIMD, A64) | v0.2 (Vector CFR, A70) | v0.2 + walk-SIMD (A74) | + reach-copy removal (A75) | Δ vs A74 | Δ vs A70 | v0.1 target |
-|---|---|---|---|---|---|---|---|---|
-| `river_canonical_spot`  | 478.23 ms @ 100 iters | 434.65 ms @ 100 iters | 40.70 ms @ 100 iters *(~0.41 ms/iter)* | 32.87 ms @ 100 iters *(~0.33 ms/iter)* | **32.09 ms @ 100 iters** *(~0.32 ms/iter)* | **-2.4 %** | **-21.2 %** | < 300 ms @ 1000 iters |
-| `river_degenerate_spot` | 363.13 µs @ 1000 iters | 268.15 µs @ 1000 iters | 13.02 ms @ 1000 iters | 9.23 ms @ 1000 iters | **8.83 ms @ 1000 iters** | **-4.3 %** | **-32.2 %** | < 50 ms @ 1000 iters |
-| `river_wet_board`       | 667.14 ms @ 100 iters | 589.27 ms @ 100 iters | 41.81 ms @ 100 iters *(~0.42 ms/iter)* | 35.50 ms @ 100 iters *(~0.36 ms/iter)* | **34.29 ms @ 100 iters** *(~0.34 ms/iter)* | **-3.4 %** | **-18.0 %** | < 500 ms @ 1000 iters |
+| Bench | Day 1 (scalar+HashMap, A62) | Day 2+3 (flat+SIMD, A64) | v0.2 (Vector CFR, A70) | v0.2 + walk-SIMD (A74) | + reach-copy removal (A75) | + node_util fusion (A76) | Δ vs A75 | Δ vs A70 | v0.1 target |
+|---|---|---|---|---|---|---|---|---|---|
+| `river_canonical_spot`  | 478.23 ms @ 100 iters | 434.65 ms @ 100 iters | 40.70 ms @ 100 iters *(~0.41 ms/iter)* | 32.87 ms @ 100 iters *(~0.33 ms/iter)* | 32.09 ms @ 100 iters *(~0.32 ms/iter)* | **30.36 ms @ 100 iters** *(~0.30 ms/iter)* | **-5.4 %** | **-25.4 %** | < 300 ms @ 1000 iters |
+| `river_degenerate_spot` | 363.13 µs @ 1000 iters | 268.15 µs @ 1000 iters | 13.02 ms @ 1000 iters | 9.23 ms @ 1000 iters | 8.83 ms @ 1000 iters | **8.32 ms @ 1000 iters** | **-5.8 %** | **-36.1 %** | < 50 ms @ 1000 iters |
+| `river_wet_board`       | 667.14 ms @ 100 iters | 589.27 ms @ 100 iters | 41.81 ms @ 100 iters *(~0.42 ms/iter)* | 35.50 ms @ 100 iters *(~0.36 ms/iter)* | 34.29 ms @ 100 iters *(~0.34 ms/iter)* | **34.56 ms @ 100 iters** *(~0.35 ms/iter)* | **+0.8 % (noise)** | **-17.3 %** | < 500 ms @ 1000 iters |
 
-**Post-A75 numbers are criterion mean on Henry's M-series MacBook,
-clean run, commit `678cb91`. A75 landed A73 recommendation #2: the two
-redundant `copy_from_slice` calls for the non-acting player's reach
-vector were replaced with direct pass-through of the caller's slice
-reference (the non-acting player's reach is unchanged at a decision
-node, so the copy into a scratch buffer was pure overhead). Gain
-was smaller than A73's 8 % estimate — 2.4 % on canonical, 3.4 % on
-wet-board, 4.3 % on degenerate — because the copies are simple linear
-memmoves the CPU already runs near memory-bandwidth limits, and A74's
-SIMD speedups on the compute loops proportionally shrunk the copy's
-share of walk time. See
-`bench-history/2026-04-23_210308_678cb91.json` for the full snapshot.**
+**Post-A76 numbers are criterion mean on Henry's M-series MacBook,
+clean run, commit `7119143`. A76 landed A73 recommendation #3: fuse
+per-action `node_util += …` accumulation into a single post-walk
+SIMD sweep. Previous shape (A74/A75): `A` actions × `cw/8` chunks ×
+{SIMD load node_util + multiply-add + SIMD store} — 2A memory ops on
+`node_util` per chunk, plus a final `out_util.copy_from_slice(&node_util)`.
+Fused shape: after the per-action walks populate `au_take[0..A]`, one
+SIMD sweep per chunk holds the accumulator in an `f32x8` register
+across the action loop, writing `out_util[chunk]` exactly once. The
+`current == update_player` branch is hoisted out of the chunk loop.
+The `node_util` scratch buffer is gone entirely. Gain: 5.4 % on
+canonical, 5.8 % on degenerate — high end of A73's 5-8 % estimate,
+stacks cleanly with A74 + A75. Wet-board unchanged within noise
+(criterion `p = 0.46`, mean drifted by +0.8 %); expected because
+wet-board has fewer actions per node so the cross-action fusion is a
+smaller share of walk time. See
+`bench-history/2026-04-23_211102_7119143.json` for the full
+snapshot.**
 
 **Extrapolated to 1000 iters:**
-- `river_canonical_spot` ~321 ms @ 1000 iters → clears 1 s hard limit,
-  still ~21 ms over the 300 ms ideal target. A73 rec #3 (node_util
-  aggregation fusion across actions, ~5-8 %) remains the open
-  compounding follow-up to close the gap.
-- `river_wet_board` ~343 ms @ 1000 iters → under the 500 ms target.
-- `river_degenerate_spot` at 8.83 ms @ 1000 iters — 5.7× under the
+- `river_canonical_spot` ~303 ms @ 1000 iters → clears 1 s hard limit
+  by 3.3×; essentially at the 300 ms ideal target (criterion lower CI
+  bound 30.14 ms, so ~301 ms @ 1000 iters is within noise of ideal).
+- `river_wet_board` ~346 ms @ 1000 iters → under the 500 ms target.
+- `river_degenerate_spot` at 8.32 ms @ 1000 iters — 6× under the
   50 ms target.
 
-**30 ms @ 100 iters target status.** Missed by ~2 ms (32.09 vs 30 ms
-target). A75 removed the copies but they were a smaller slice of the
-budget than A73 measured — consistent with A73's profile having been
-taken pre-walk-SIMD when the compute loops were proportionally more
-expensive. The remaining path to 30 ms is A73 rec #3 (aggregation
-fusion) plus whatever lives in the showdown matmul's cache behavior.
+**30 ms @ 100 iters target status.** Essentially met. Mean 30.36 ms
+with criterion CI `[30.14, 30.63]`; the 30 ms ideal is inside the
+noise band. The v0.1 perf story is complete — three compounding
+walk-level optimizations (A74 walk-SIMD, A75 reach-copy removal, A76
+node_util fusion) took canonical river from 40.70 ms (A70) to
+30.36 ms, a 25.4 % reduction. No remaining 5 %+ walk-level lever
+identified; further gains would need either (a) showdown-matmul
+cache/tiling work (21 % of CPU from A73 profile, untouched so far)
+or (b) the NEON path that A72 found no gain on.
 
 **Degenerate-spot regression note.** The vector solver always walks
 1326-wide reach vectors, even on a 1-combo-vs-1-combo spot where

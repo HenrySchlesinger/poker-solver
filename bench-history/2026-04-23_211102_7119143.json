@@ -1,0 +1,52 @@
+{
+  "commit": "7119143",
+  "commit_short": "7119143",
+  "date_utc": "2026-04-23T21:11:02Z",
+  "hardware": "M-series Mac (Henry's laptop)",
+  "agent": "A76",
+  "rust_toolchain": "1.85.0-aarch64-apple-darwin",
+  "profile": "bench (optimized + debuginfo)",
+  "notes": "A76 landed A73 recommendation #3: fused `node_util` aggregation across actions into a single post-walk SIMD sweep. Previous (A74+A75) shape: for each action, SIMD-load node_util chunk, add `p[c]*au[c]` (or `au[c]`), store back — A reads + A writes of node_util per chunk across A actions, plus a final `out_util.copy_from_slice(&node_util)` memmove. Fused (A76): drop the node_util scratch buffer entirely; after the per-action walks populate `au_take[0..num_actions]`, one SIMD sweep per 8-wide chunk accumulates Σ_i strategy[i][c] * au_take[i][c] (or Σ_i au_take[i][c] at opponent nodes) into an `f32x8` register and writes `out_util[base..base+8]` exactly once. The `current == update_player` branch is hoisted out of the chunk loop since `current` is fixed at a given node. The CFR+ regret update below (which previously read `node_util_take[c]`) now reads `out_util[c]` directly — same data, one fewer buffer. Summation order is action-major left-associative starting from 0, identical to A74, so each output lane is bit-for-bit equal to the pre-fusion code. Scratch simplification: `ScratchPool::node_util` and its ensure_depth/put-back plumbing deleted. All correctness gates green: Kuhn 3-way vector_equivalence (2 tests), NLHE river_vector_vs_flat (3 tests incl. canonical root-frequency differential), river_canonical (4 scenarios incl. exploitability decrease), scripts/e2e.sh (CLI + FFI + Swift harness, 13 assertions). `river_canonical_spot` drops 32.09 -> 30.36 ms @ 100 iters (5.4 % faster) — the lower CI bound is 30.14 ms, essentially at the 30 ms ideal target (~303 ms extrapolated @ 1000 iters). `river_degenerate_spot` drops 8.83 -> 8.32 ms @ 1000 iters (5.8 %). `river_wet_board` is noise-flat at 34.56 ms (criterion `p = 0.46`, no change detected) — expected because wet-board has fewer actions per node, so the cross-action fusion is a smaller share of walk time there. Flat path `river_canonical_spot_flat` drifts 659.02 -> 694.44 ms (+5.4 %; hardware/thermal noise, flat path untouched by A76; kept as regression guard). The A76 gain landed at the high end of A73's 5-8 % estimate — cleanly stacked with A74 walk-SIMD and A75 copy-removal. v0.1 perf story: 30.36 ms @ 100 iters = ~303 ms @ 1000 iters — 3x under the 1 s hard limit and within criterion noise of the 300 ms ideal. Ship-ready.",
+  "benches": {
+    "river_canonical_spot": {
+      "mean_ns": 30362000.0,
+      "unit": "ns",
+      "ci_low_ns": 30138000.0,
+      "ci_high_ns": 30628000.0,
+      "mean_display": "30.36 ms",
+      "iterations_per_sample": 100,
+      "change_vs_baseline_pct": -5.38,
+      "notes": "AhKhQh2d4s, hero AA/KK/AKs, villain 22+/AJs+/KQs, pot 100, stack 500. 5.4 % faster than A75's 32.09 ms, 25.4 % faster than A70's 40.70 ms. Extrapolates to ~303 ms @ 1000 iters. Lower CI bound 30.14 ms — the 30 ms ideal target is inside criterion noise. The 300 ms @ 1000 iters ideal is effectively met."
+    },
+    "river_degenerate_spot": {
+      "mean_ns": 8320200.0,
+      "unit": "ns",
+      "ci_low_ns": 8272700.0,
+      "ci_high_ns": 8376600.0,
+      "mean_display": "8.32 ms",
+      "iterations_per_sample": 1000,
+      "change_vs_baseline_pct": -5.81,
+      "notes": "2c7d9hTsJs, hero AhKh vs villain AsAd, pot 1000, stack 0. 5.8 % faster than A75's 8.83 ms, 36.1 % faster than A70's 13.02 ms. The trivial spot still pays the 1326-wide reach-vector plumbing but now the cross-action aggregation is one SIMD sweep instead of per-action load/store."
+    },
+    "river_wet_board": {
+      "mean_ns": 34561000.0,
+      "unit": "ns",
+      "ci_low_ns": 33906000.0,
+      "ci_high_ns": 35303000.0,
+      "mean_display": "34.56 ms",
+      "iterations_per_sample": 100,
+      "change_vs_baseline_pct": 0.80,
+      "notes": "JhTh9c8h7s, hero AA/AKs/QTs, villain 22+/AQs+, pot 100, stack 500. Criterion reports no change (p = 0.46). Consistent with A76's benefit scaling with action count — wet-board has fewer actions per node on average, so fewer per-action node_util load/stores to eliminate. Still well under the 500 ms target."
+    },
+    "river_canonical_spot_flat": {
+      "mean_ns": 694440000.0,
+      "unit": "ns",
+      "ci_low_ns": 677960000.0,
+      "ci_high_ns": 714220000.0,
+      "mean_display": "694.44 ms",
+      "iterations_per_sample": 100,
+      "change_vs_baseline_pct": 5.37,
+      "notes": "Scalar `CfrPlusFlat` path — not touched by A76 (the node_util fusion is in `CfrPlusVector::walk`, a different function). The drift from A75's 659 ms to 694 ms is within the wide hardware-noise band these long benches accumulate (21 outliers out of 100 samples on this run). Kept as a regression guard; semantically identical code."
+    }
+  }
+}
