@@ -80,6 +80,23 @@ Before doing anything substantive in this repo, read:
 - If you find yourself writing more than ~30 lines of bash or ~50 lines of
   Python, it should probably be a Rust binary under `solver-cli`.
 
+## No paid services (Henry's rule)
+
+- **We are building our own. No paid third-party services.** No Colab Pro,
+  no Deepsolver API, no GTO Wizard API, no PioSolver licenses, no paid
+  cloud compute. Any agent that proposes adding a paid dependency must
+  stop and flag it — don't just add it.
+- **Free FLOSS is fine.** `rs_poker`, `zstd`, `rand`, `wide`, `criterion`,
+  `proptest`, `cbindgen`, TexasSolver (used only as a locally-built test
+  oracle — not redistributed) all remain in scope. The constraint is
+  against PAID services, not against free open-source dependencies.
+- **Precompute runs on Colab FREE tier.** Parallelism comes from launching
+  multiple free browser sessions (embarrassingly parallel), not from
+  upgrading to Pro. If a free session hits the 12-hour cap, the resumable
+  logic in the notebooks picks up where it left off.
+- **Fallback if free tier is insufficient:** an overnight local run on
+  Henry's Mac — same Rust binary either way. Never a paid upgrade.
+
 ## Don't over-engineer
 
 - We have 7 days. Ship the working thing, not the elegant thing.
