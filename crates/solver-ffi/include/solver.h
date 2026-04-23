@@ -201,10 +201,31 @@ struct SolverHandle *solver_new(void);
 
  Returns `SolverStatus::Ok` on success, `InvalidInput` on malformed
  arguments, `InternalError` if we caught a panic.
+
+ # v0.1 caveats
+
+ - River-only: `HandState.board_len` must be 5. Turn/flop subgames
+   come with the cache (v0.2) and the turn subgame (v0.3).
+ - `bet_tree_version` must be 0 (the default v0.1 tree). Other values
+   are reserved for future tree profiles.
+ - Iteration count is hardcoded to `DEFAULT_ITERATIONS` (100). See the
+   constant's doc-comment for the ABI-stability rationale.
+ - Any stack size is OK. A58's AllIn-terminal fix (commit `5629935`)
+   bounds the river tree under arbitrary stack depths; the previous
+   "stack=0 or small values" caveat is no longer accurate.
+
+ # Safety
+
+ `input` and `output` must either be null or point to a valid,
+ correctly-aligned `HandState` / `SolveResult` respectively. The
+ function null-checks them before dereferencing and returns
+ `InvalidInput` on null — any other invalid pointer (dangling,
+ misaligned, wrong size) is undefined behavior. This matches the C
+ ABI contract the cbindgen-generated `solver.h` documents.
  */
 int32_t solver_solve(struct SolverHandle *_handle,
-                     const struct HandState *_input,
-                     struct SolveResult *_output);
+                     const struct HandState *input,
+                     struct SolveResult *output);
 
 /*
  Version string. Null-terminated. Do not free.

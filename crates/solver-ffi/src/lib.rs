@@ -143,9 +143,9 @@ pub extern "C" fn solver_free(handle: *mut SolverHandle) {
 ///   are reserved for future tree profiles.
 /// - Iteration count is hardcoded to `DEFAULT_ITERATIONS` (100). See the
 ///   constant's doc-comment for the ABI-stability rationale.
-/// - v0.1: callers should set stack=0 or small values until A58's AllIn
-///   fix lands; larger stacks can expose an unbounded-tree bug in the
-///   river bet tree.
+/// - Any stack size is OK. A58's AllIn-terminal fix (commit `5629935`)
+///   bounds the river tree under arbitrary stack depths; the previous
+///   "stack=0 or small values" caveat is no longer accurate.
 ///
 /// # Safety
 ///
