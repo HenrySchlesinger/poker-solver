@@ -1,0 +1,22 @@
+{
+  "id": "spot_012",
+  "name": "3-bet pot AhKd2c, tight ranges",
+  "description": "Same dry A-high board as spot_001 but in a 3-bet pot. Ranges collapse to 3-bet / 3-bet-call levels. Pot is larger (18bb = 180 chips, after BTN 3-bets ~9bb and BB calls), effective stack proportionally smaller (~91bb remaining). Lower SPR means fewer bet sizes possible before the game is all-in. Hero = BB (3-bet-caller, out of position), villain = BTN.",
+  "street": "flop",
+  "input": {
+    "board": "AhKd2c",
+    "hero_range": "TT, JJ, QQ, KK, AA, AJs, AQs, AKs, AQo, AKo, KQs, A5s, A4s, A3s, A2s",
+    "villain_range": "QQ, KK, AA, AKs, AKo, A5s, A4s, KQs",
+    "pot": 180,
+    "effective_stack": 910,
+    "to_act": "hero",
+    "bet_tree": "default_v0_1"
+  },
+  "iterations": 1000,
+  "tolerances": {
+    "action_freq_abs": 0.05,
+    "ev_bb_abs": 0.10
+  },
+  "expected_reference": "texassolver",
+  "expected_notes": "Populated by differential run. Hero's range smashes this board (has all AA/AK/KK); watch whether solver check-calls or donk-bets with BB-as-3-bet-caller convention."
+}

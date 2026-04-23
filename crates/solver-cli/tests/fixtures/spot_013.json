@@ -1,0 +1,22 @@
+{
+  "id": "spot_013",
+  "name": "3-bet pot QhJhTs wet broadway",
+  "description": "Same wet broadway straight-ladder board as spot_007 but in a 3-bet pot (pot=180, eff=910). Tight ranges interact very heavily with this board: every BB 3-bet holds at least one card that plays; BTN's range has many hands that either smashed or got completely negated. Tests the nervous system of the solver: SPR around 5, lots of made-hand / draw combinations. Hero = BB, villain = BTN.",
+  "street": "flop",
+  "input": {
+    "board": "QhJhTs",
+    "hero_range": "TT, JJ, QQ, KK, AA, AJs, AQs, AKs, AQo, AKo, KQs, A5s, A4s, A3s, A2s",
+    "villain_range": "QQ, KK, AA, AKs, AKo, A5s, A4s, KQs",
+    "pot": 180,
+    "effective_stack": 910,
+    "to_act": "hero",
+    "bet_tree": "default_v0_1"
+  },
+  "iterations": 1000,
+  "tolerances": {
+    "action_freq_abs": 0.05,
+    "ev_bb_abs": 0.10
+  },
+  "expected_reference": "texassolver",
+  "expected_notes": "Populated by differential run. Expect many all-in rivers in this spot. Good stress test for SPR handling — the solver must see the remaining stack and prefer bigger bet sizes than on spot_007."
+}

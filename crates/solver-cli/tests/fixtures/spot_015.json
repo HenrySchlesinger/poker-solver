@@ -1,0 +1,22 @@
+{
+  "id": "spot_015",
+  "name": "River runout AhKd2c-Qc-4d dry",
+  "description": "River spot on a dry runout. Hero assumed to be in position post-flop and went check-check on flop and turn; river brings a safe 4d. Very narrow ranges (flop-SRP ranges filtered for hands that would check back both previous streets). This is the easiest river to solve — almost pure value-vs-bluff-catch dynamic. Hero = BB (c-bet-caller last to act), villain = BTN.",
+  "street": "river",
+  "input": {
+    "board": "AhKd2cQc4d",
+    "hero_range": "AA, KK, QQ, JJ, AKo, AQo",
+    "villain_range": "77, 88, 99, TT, AQs, AJs, KQs",
+    "pot": 100,
+    "effective_stack": 950,
+    "to_act": "hero",
+    "bet_tree": "default_v0_1"
+  },
+  "iterations": 1000,
+  "tolerances": {
+    "action_freq_abs": 0.05,
+    "ev_bb_abs": 0.10
+  },
+  "expected_reference": "texassolver",
+  "expected_notes": "Populated by differential run. Straightforward polar vs bluff-catcher setup; hero's AA/KK/QQ/AKo have showdown value, villain's TT/99/AJ are weak bluff-catchers. Reasonable first river fixture for regression testing."
+}

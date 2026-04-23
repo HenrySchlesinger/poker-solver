@@ -1,0 +1,95 @@
+name: Nightly benchmarks
+
+# Runs the criterion suite once a day and uploads HTML reports as a
+# workflow artifact. CI (ci.yml) only compiles benches — running them on
+# every PR produces noisy numbers on shared runners. See
+# docs/BENCHMARKS.md for the perf-discipline rationale.
+#
+# The job uses `continue-on-error: true` on the bench step itself because
+# a regression vs the stored `main` baseline will make criterion exit
+# nonzero once `benchcmp` / `--baseline main` noise kicks in, and we
+# don't want a noisy perf run to mark the nightly pipeline as broken.
+# The artifact upload still fires so Henry can eyeball the HTML.
+
+"on":
+  schedule:
+    # 02:00 UTC daily = 22:00 ET / 19:00 PT. Low-traffic window.
+    - cron: "0 2 * * *"
+  # Allow firing manually from the Actions tab when we want fresh numbers.
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  bench:
+    name: solver-core criterion
+    # macOS 14 to keep the data comparable with Henry's M-series numbers,
+    # even though GitHub's runner is not identical hardware. Relative
+    # day-over-day trends still catch regressions; absolute targets
+    # (docs/BENCHMARKS.md) are validated on Henry's Mac only.
+    runs-on: macos-14
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Installed from rust-toolchain.toml (same pin as ci.yml). rustup
+      # is pre-installed on macos-14 runners and `rustup show` reads
+      # the file and installs the pinned channel if missing.
+      - name: Install Rust toolchain (from rust-toolchain.toml)
+        run: |
+          rustup show
+          rustc --version
+          cargo --version
+
+      - name: Cache cargo + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: bench
+          # Persist the cache from nightly runs so the next night reuses
+          # deps but forces a fresh bench binary.
+          save-if: "true"
+
+      # Try to restore the last `main` criterion baseline so that
+      # `cargo bench -- --baseline main` prints a regression table
+      # instead of just raw numbers. First run on a fresh repo has no
+      # baseline — we fall through and bench will fall back to saving
+      # one for next time (see the save step below).
+      - name: Restore criterion baseline
+        id: baseline
+        uses: actions/cache@v4
+        with:
+          path: target/criterion
+          key: criterion-main-${{ github.ref_name }}
+          restore-keys: |
+            criterion-main-main
+            criterion-main-
+
+      # If we have a stored baseline called `main`, compare against it.
+      # Otherwise save the current run AS the `main` baseline so future
+      # runs have something to diff against. `continue-on-error: true`
+      # so a noisy regression on a shared runner doesn't alarm-fire.
+      - name: cargo bench -p solver-core
+        continue-on-error: true
+        run: |
+          if [ -d target/criterion ] && \
+             find target/criterion -type d -name main -print -quit | grep -q .; then
+            echo "Found existing 'main' baseline, comparing."
+            cargo bench -p solver-core -- --baseline main
+          else
+            echo "No baseline yet; saving current run as 'main'."
+            cargo bench -p solver-core -- --save-baseline main
+          fi
+
+      - name: Upload criterion HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: criterion-report-${{ github.run_id }}
+          path: target/criterion
+          if-no-files-found: warn
+          retention-days: 30

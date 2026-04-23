@@ -1,5 +1,7 @@
 # poker-solver
 
+[![CI](https://github.com/henryschlesinger/poker-solver/actions/workflows/ci.yml/badge.svg)](https://github.com/henryschlesinger/poker-solver/actions/workflows/ci.yml)
+
 A local NLHE GTO solver, built to power live-broadcast overlays in
 [Poker Panel](~/Desktop/Poker%20Panel) — the $60/mo macOS streaming app.
 

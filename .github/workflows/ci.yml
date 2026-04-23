@@ -1,0 +1,69 @@
+name: CI
+
+# Sanity battery: format, lint, test, bench-compile. The iteration loop
+# for the 10 parallel agents — if main goes red, we see it within minutes.
+# See docs/BENCHMARKS.md for why tests run in release (debug CFR is too
+# slow to be useful as a smoke signal).
+
+"on":
+  push:
+    branches: [main]
+  pull_request:
+
+# If a newer push lands on the same branch/PR, cancel the in-flight run.
+# Keeps CI minutes sane with a lot of parallel agents committing small PRs.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  sanity:
+    name: fmt + clippy + test + bench-compile
+    # macOS 14 matches Henry's dev env. Not testing Linux for now — this
+    # project targets Mac (FFI'd into a macOS Swift app).
+    runs-on: macos-14
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Install the toolchain pinned by rust-toolchain.toml. rustup ships
+      # pre-installed on GitHub's macos-14 runners and natively honors
+      # the toml file — `rustup show` (without args) reads it and
+      # installs the pinned channel if missing. Pinning through the file
+      # (rather than hard-coding a version in this workflow) keeps
+      # Henry's Mac, CI, and Colab on one source of truth.
+      - name: Install Rust toolchain (from rust-toolchain.toml)
+        run: |
+          rustup show
+          rustc --version
+          cargo --version
+
+      - name: Cache cargo + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          # Bucket separately from bench.yml so one cache doesn't clobber
+          # the other; both workflows share a key under the hood anyway.
+          shared-key: sanity
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: cargo fmt --all -- --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test --workspace --release
+        run: cargo test --workspace --release
+
+      # Compile the benches but don't run them. Running them on a shared
+      # CI runner gives noisy numbers; we validate perf locally / nightly
+      # (see .github/workflows/bench.yml).
+      - name: cargo bench --workspace --no-run
+        run: cargo bench --workspace --no-run

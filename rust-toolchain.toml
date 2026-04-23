@@ -2,15 +2,18 @@
 # Actions, and Colab all build with the same compiler. `rustup` picks
 # this up automatically when you run any cargo command in the repo.
 #
-# Pinned to 1.82.0 because:
-#   - it's well above the workspace MSRV of 1.75 (see Cargo.toml
-#     `rust-version`), so we still accept contributors on older stable;
-#   - it's old enough to be widely cached on GitHub's macos-14 runners;
-#   - it's recent enough to have stable features we depend on (rayon,
-#     criterion, std::hint::black_box, etc).
+# Pinned to 1.85.0 because:
+#   - `rs_poker` (our hand evaluator, see crates/solver-eval/Cargo.toml)
+#     ships with edition = "2024" in its manifest, and Rust only started
+#     accepting edition 2024 in stable 1.85.0 (Feb 2025). Anything older
+#     fails with "feature `edition2024` is unstable".
+#   - 1.85.0 is widely cached on GitHub's macos-14 runners.
+#   - The workspace's own MSRV is still 1.75 (see Cargo.toml
+#     `rust-version`) — we don't use any 1.85-specific language features
+#     ourselves; the bump is solely to tolerate the rs_poker dependency.
 #
-# Bump this when we adopt a feature that needs a newer compiler — do not
-# bump it by default.
+# Bump this when we adopt a feature or dep that needs a newer compiler
+# — do not bump it by default.
 
 [toolchain]
 channel = "1.85.0"

@@ -1,0 +1,22 @@
+{
+  "id": "spot_014",
+  "name": "3-bet pot 8h8c3d paired",
+  "description": "Same paired small board as spot_009 but in a 3-bet pot. Both ranges are heavy on premium broadway + AK, so neither side made much on this board. Tests a 'neither range hits' scenario in a 3-bet pot where positional aggression typically dominates. Hero = BB, villain = BTN.",
+  "street": "flop",
+  "input": {
+    "board": "8h8c3d",
+    "hero_range": "TT, JJ, QQ, KK, AA, AJs, AQs, AKs, AQo, AKo, KQs, A5s, A4s, A3s, A2s",
+    "villain_range": "QQ, KK, AA, AKs, AKo, A5s, A4s, KQs",
+    "pot": 180,
+    "effective_stack": 910,
+    "to_act": "hero",
+    "bet_tree": "default_v0_1"
+  },
+  "iterations": 1000,
+  "tolerances": {
+    "action_freq_abs": 0.05,
+    "ev_bb_abs": 0.10
+  },
+  "expected_reference": "texassolver",
+  "expected_notes": "Populated by differential run. Neither range has an 8; overpairs TT/JJ/QQ/KK/AA still have massive equity. BTN typically c-bets very high frequency in this spot."
+}
