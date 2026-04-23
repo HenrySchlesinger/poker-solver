@@ -17,3 +17,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 smallvec = { workspace = true }
 bytemuck = { workspace = true }
+
+[dev-dependencies]
+# Property-based testing: used by tests/proptest_ranges.rs (A24). See
+# docs/BENCHMARKS.md#property-tests for the invariants it encodes.
+proptest = { workspace = true }

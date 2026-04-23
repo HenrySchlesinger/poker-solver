@@ -1,22 +1,26 @@
 //! solver-cli — dev harness.
 //!
 //! Subcommands:
-//!   solve       — solve a spot and print JSON
-//!   validate    — diff our solver against TexasSolver on canonical spots
-//!   precompute  — solve a grid of spots and write cache files
+//!   solve              — solve a spot and print JSON
+//!   validate           — diff our solver against TexasSolver on canonical spots
+//!   precompute         — solve a grid of spots and write cache files
+//!   translate-fixture  — convert a fixture JSON into a TexasSolver config
 //!
 //! This binary is NEVER shipped to Poker Panel users — strictly a
 //! development tool. Runs on the Mac for interactive work, runs on
 //! Colab for overnight precompute jobs.
 //!
-//! See `src/solve_cmd.rs` for the `solve` implementation. `validate` and
+//! See `src/solve_cmd.rs` for the `solve` implementation and
+//! `src/translate.rs` for the fixture-translator. `validate` and
 //! `precompute` are scaffolded for later days of the sprint.
 
 use clap::{Parser, Subcommand};
 
 mod solve_cmd;
+mod translate;
 
-use solve_cmd::{SolveArgs, run_solve};
+use solve_cmd::{run_solve, SolveArgs};
+use translate::{run_translate, TargetFormat, TranslateArgs};
 
 /// Top-level CLI.
 #[derive(Parser)]
@@ -70,6 +74,26 @@ enum Cmd {
         #[arg(long)]
         output: String,
     },
+
+    /// Translate a fixture JSON (A15 schema) into a TexasSolver
+    /// `.tsconfig` file for the A14 differential harness.
+    ///
+    /// See `src/translate.rs` for the schema→config mapping.
+    TranslateFixture {
+        /// Path to the input fixture JSON.
+        #[arg(long)]
+        input: String,
+        /// Path to write the translated config. `-` = stdout.
+        #[arg(long)]
+        output: String,
+        /// Target format. Only `"texassolver"` is recognized today.
+        #[arg(long, default_value = "texassolver")]
+        format: String,
+        /// Path baked into the emitted `dump_result` line. TexasSolver
+        /// writes its strategy JSON there at the end of `start_solve`.
+        #[arg(long, default_value = "output_result.json")]
+        dump_path: String,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -100,12 +124,24 @@ fn main() -> anyhow::Result<()> {
             // TODO (Day 6, agent A1): diff vs TexasSolver JSON output.
             anyhow::bail!("validate: not-yet-implemented (scheduled Day 6)")
         }
-        Cmd::Precompute {
-            grid: _,
-            output: _,
-        } => {
+        Cmd::Precompute { grid: _, output: _ } => {
             // TODO (Day 5, agent A5): grid-solve for Colab.
             anyhow::bail!("precompute: not-yet-implemented (scheduled Day 5)")
+        }
+        Cmd::TranslateFixture {
+            input,
+            output,
+            format,
+            dump_path,
+        } => {
+            let fmt = TargetFormat::parse(&format)?;
+            let args = TranslateArgs {
+                input,
+                output,
+                format: fmt,
+                dump_path,
+            };
+            run_translate(&args)
         }
     }
 }

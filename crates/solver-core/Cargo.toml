@@ -15,9 +15,19 @@ rand_xoshiro = { workspace = true }
 smallvec = { workspace = true }
 bytemuck = { workspace = true }
 thiserror = { workspace = true }
+# Portable SIMD for matching_simd.rs. std::simd (portable_simd, tracking
+# issue rust-lang/rust#86656) is still nightly-only on the pinned 1.85
+# stable toolchain (see rust-toolchain.toml), so we use `wide` — which
+# gives a stable 8-wide f32x8 mapping to NEON on Apple Silicon and AVX
+# on x86, with a scalar fallback everywhere else. See
+# `src/matching_simd.rs` and `benches/simd_matching.rs`.
+wide = "0.7"
 
 [dev-dependencies]
 criterion = { workspace = true }
+# Property-based testing: used by tests/proptest_cfr.rs (A24). See
+# docs/BENCHMARKS.md#property-tests for the invariants it encodes.
+proptest = { workspace = true }
 
 [[bench]]
 name = "river"
@@ -33,4 +43,8 @@ harness = false
 
 [[bench]]
 name = "flat_vs_hashmap"
+harness = false
+
+[[bench]]
+name = "simd_matching"
 harness = false
