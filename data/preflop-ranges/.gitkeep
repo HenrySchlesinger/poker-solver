@@ -1,2 +1,19 @@
 # Placeholder so git tracks this directory.
 # Populated by the Day 5 Colab precompute job — see ../../colab/precompute_preflop.md
+#
+# Real ranges land here as binary files in the v0.1 preflop format
+# documented at:
+#
+#     crates/solver-nlhe/src/preflop.rs  (module-level doc-comment)
+#
+# Runtime loader:
+#
+#     solver_nlhe::preflop::PreflopRanges::load_from_file(path)
+#
+# Writer (invoked from `solver-cli precompute` on Colab on Day 5):
+#
+#     solver_nlhe::preflop::write_binary(path, &entries)
+#
+# Until real ranges land, tests use `PreflopRanges::test_fixture()` to
+# build a handful of placeholder entries in-memory without touching the
+# filesystem.
