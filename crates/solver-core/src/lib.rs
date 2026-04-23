@@ -12,17 +12,23 @@
 #![warn(missing_docs)]
 
 pub mod cfr;
+pub mod cfr_flat;
 pub mod convergence;
 pub mod game;
 pub mod matching;
 pub mod matching_simd;
 pub mod mccfr;
+pub mod tables;
 
 pub use cfr::{CfrPlus, Strategy};
+pub use cfr_flat::{
+    enumerate_info_sets, enumerate_info_sets_from_roots, CfrPlusFlat, InfoSetDescriptor,
+};
 pub use convergence::{best_response_value, exploitability_two_player_zero_sum};
 pub use game::{Game, InfoSetId, Player};
 pub use matching::{regret_match, regret_match_vec};
 pub use matching_simd::regret_match_simd;
+pub use tables::RegretTables;
 
 /// Error type surfaced by the solver core.
 #[derive(Debug, thiserror::Error)]
