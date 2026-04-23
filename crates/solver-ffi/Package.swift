@@ -1,25 +1,27 @@
 // swift-tools-version:5.9
 //
 // Package.swift — Swift Package Manager manifest for consuming the
-// poker-solver FFI as a precompiled binary from a GitHub Release.
+// poker-solver FFI as a precompiled .xcframework from a GitHub Release.
 //
 // Intended consumer: ~/Desktop/Poker Panel/ (and any future Swift client).
 //
-// Binary target distribution strategy:
-//   - Our GitHub Release uploads a single universal-macOS tarball
-//     produced by scripts/build-release.sh. The tarball contains
-//     lib/libsolver_ffi.{a,dylib} plus include/solver.h.
-//   - Swift Package Manager expects a .xcframework for remote binary
-//     targets, which is a superset of what we ship today. For v0.1 we
-//     document the manual integration path in docs/RELEASE_PROCESS.md
-//     and ship this manifest as an *example consumer scaffold* that a
-//     downstream project can copy, edit, and point at its own xcframework
-//     build. We keep it compilable-as-a-standalone-package so
-//     `swift package dump-package` against a copy succeeds.
+// Binary target distribution strategy (v0.1 and forward):
+//   - scripts/build-release.sh produces a universal .a/.dylib bundle.
+//   - scripts/build-xcframework.sh wraps that into PokerSolver.xcframework
+//     and tarballs it as PokerSolver-<VERSION>.xcframework.tar.gz.
+//   - scripts/gh-release.sh attaches that tarball to the GitHub Release.
+//   - This manifest's `.binaryTarget(url:)` points at that tarball.
+//     SwiftPM fetches, verifies the sha256 checksum, and exposes the
+//     universal static lib + headers as the module `PokerSolverBinary`.
+//   - The `PokerSolver` module in Sources/ is a thin Swift wrapper that
+//     re-exports the C symbols and adds a couple of Swifty conveniences.
 //
-// Post-v0.1 TODO: wrap the universal dylib in an xcframework inside
-// build-release.sh and flip the `.binaryTarget(url:)` below to reference
-// the real release URL + checksum.
+// The URL and checksum below are set by a release step (documented in
+// docs/RELEASE_PROCESS.md). Until the real v0.1.0 release is cut, the
+// checksum reads "FILL_AFTER_RELEASE" as a sentinel so `swift build`
+// fails fast with a useful error rather than trying to download a
+// nonexistent asset. `swift package dump-package` succeeds either way
+// (syntax is valid), which is what our CI checks.
 
 import PackageDescription
 
@@ -35,22 +37,18 @@ let package = Package(
         ),
     ],
     targets: [
-        // Binary target placeholder. The URL points at the canonical v0.1.0
-        // tarball shape produced by scripts/build-release.sh. The checksum
-        // below is a placeholder; the real value is written into
-        // target/release-bundle/solver-<VERSION>-macos-universal.tar.gz.sha256
-        // after build-release.sh runs, and gets substituted in by
-        // scripts/gh-release.sh's post-publish reminder.
-        //
-        // NOTE: SwiftPM requires .xcframework for remote binary targets.
-        // For v0.1, consumers should integrate the .a/.dylib + header
-        // manually per docs/RELEASE_PROCESS.md. This target is scaffolding
-        // for the v0.2 xcframework shape.
+        // The precompiled universal .xcframework produced by
+        // scripts/build-xcframework.sh and attached to the GitHub Release.
+        // SwiftPM downloads this lazily the first time `swift build` runs.
         .binaryTarget(
             name: "PokerSolverBinary",
-            url: "https://github.com/HenrySchlesinger/poker-solver/releases/download/v0.1.0/solver-v0.1.0-macos-universal.tar.gz",
-            checksum: "TODO_CHECKSUM_AFTER_FIRST_RELEASE"
+            url: "https://github.com/HenrySchlesinger/poker-solver/releases/download/v0.1.0/PokerSolver-v0.1.0.xcframework.tar.gz",
+            checksum: "FILL_AFTER_RELEASE"
         ),
+        // Thin Swift wrapper. Re-exports PokerSolverBinary so consumers
+        // only need `import PokerSolver`, and adds a small amount of
+        // Swift sugar (status enum, version accessor) on top of the
+        // raw C symbols.
         .target(
             name: "PokerSolver",
             dependencies: ["PokerSolverBinary"],
