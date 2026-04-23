@@ -144,12 +144,8 @@ impl BufferPool {
         // call sequences.
         let new_cap = n.next_power_of_two().max(1326);
         let bytes = (new_cap * std::mem::size_of::<f32>()) as u64;
-        self.regrets_buf = Some(
-            device.new_buffer(bytes, MTLResourceOptions::StorageModeShared),
-        );
-        self.out_buf = Some(
-            device.new_buffer(bytes, MTLResourceOptions::StorageModeShared),
-        );
+        self.regrets_buf = Some(device.new_buffer(bytes, MTLResourceOptions::StorageModeShared));
+        self.out_buf = Some(device.new_buffer(bytes, MTLResourceOptions::StorageModeShared));
         self.capacity = new_cap;
     }
 }
@@ -399,10 +395,7 @@ mod tests {
         regret_match_metal(&ctx, &regrets, &mut out_metal).unwrap();
         regret_match(&regrets, &mut out_scalar);
         for (i, (&m, &s)) in out_metal.iter().zip(out_scalar.iter()).enumerate() {
-            assert!(
-                (m - s).abs() < 1e-4,
-                "idx {i}: metal {m} vs scalar {s}"
-            );
+            assert!((m - s).abs() < 1e-4, "idx {i}: metal {m} vs scalar {s}");
         }
     }
 
@@ -428,10 +421,7 @@ mod tests {
             "strategy should sum to 1, got {sum}"
         );
         for (i, (&m, &s)) in out_metal.iter().zip(out_scalar.iter()).enumerate() {
-            assert!(
-                (m - s).abs() < 1e-4,
-                "idx {i}: metal {m} vs scalar {s}"
-            );
+            assert!((m - s).abs() < 1e-4, "idx {i}: metal {m} vs scalar {s}");
         }
     }
 }

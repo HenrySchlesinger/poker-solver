@@ -13,7 +13,11 @@ description = "Game-agnostic CFR+/MCCFR/Vector CFR solver core"
 # only ships the portable-SIMD path, and `build.rs` always writes a stub
 # .metallib so `include_bytes!` still resolves when the feature is off.
 # Turn on with `--features metal` once the shader + dispatch code land.
-metal = []
+# On macOS this also pulls in the optional `metal` + `objc` crates
+# declared under `[target.'cfg(target_os = "macos")'.dependencies]`.
+# On non-macOS the `metal` module itself is gated off in `lib.rs` so
+# the feature is a harmless no-op.
+metal = ["dep:metal", "dep:objc"]
 
 [dependencies]
 rayon = { workspace = true }
@@ -29,6 +33,13 @@ thiserror = { workspace = true }
 # on x86, with a scalar fallback everywhere else. See
 # `src/matching_simd.rs` and `benches/simd_matching.rs`.
 wide = "0.7"
+
+# Metal GPU backend. Only resolved on macOS; the `[features]` entry
+# above toggles these via `dep:metal` / `dep:objc` so non-macOS builds
+# never see them even when `--features metal` is passed.
+[target.'cfg(target_os = "macos")'.dependencies]
+metal = { version = "0.27", optional = true }
+objc = { version = "0.2", optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
@@ -55,3 +66,12 @@ harness = false
 [[bench]]
 name = "simd_matching"
 harness = false
+
+[[bench]]
+name = "metal_matching"
+harness = false
+required-features = ["metal"]
+
+[[test]]
+name = "metal_equivalence"
+required-features = ["metal"]

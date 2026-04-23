@@ -63,5 +63,4 @@ pub use device::{regret_match_metal, MetalContext, MetalError};
 /// build-time shader compile succeeded. Used by the runtime fallback
 /// path in [`device::MetalContext::new`] when
 /// `cfg(no_metallib_available)` is set.
-pub(crate) const SHADER_SOURCE: &str =
-    include_str!("shaders/regret_matching.metal");
+pub(crate) const SHADER_SOURCE: &str = include_str!("shaders/regret_matching.metal");

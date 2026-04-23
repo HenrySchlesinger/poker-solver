@@ -20,6 +20,13 @@ pub mod matching_simd;
 pub mod mccfr;
 pub mod tables;
 
+// Opt-in Metal GPU backend for regret matching. Only compiled when the
+// `metal` feature is on AND the target OS is macOS. See `src/metal/mod.rs`
+// for the rationale, the shader loading strategy, and the `build.rs`
+// graceful-fallback contract.
+#[cfg(all(feature = "metal", target_os = "macos"))]
+pub mod metal;
+
 pub use cfr::{CfrPlus, Strategy};
 pub use cfr_flat::{
     enumerate_info_sets, enumerate_info_sets_from_roots, CfrPlusFlat, InfoSetDescriptor,
