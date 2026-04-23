@@ -53,6 +53,20 @@ Before doing anything substantive in this repo, read:
   [docs/BENCHMARKS.md](docs/BENCHMARKS.md). Don't regress the river inner
   loop without a really good reason.
 
+## Rust wherever possible
+
+- **This is a Rust-first project.** Prefer Rust binaries over shell scripts,
+  Rust test harnesses over Python harnesses, Rust CLI tools over Python
+  CLI tools. `solver-cli` is the home for dev tools that would be Python
+  elsewhere.
+- **Exception: Colab notebooks.** Colab runs Jupyter — Python is unavoidable
+  there. Keep notebook Python minimal and offload real work to invocations
+  of our compiled Rust binaries (`./target/release/solver-cli ...`).
+- **Shell scripts are OK only for** short glue that invokes external tools
+  (git clone, cmake) where Rust would add zero value.
+- If you find yourself writing more than ~30 lines of bash or ~50 lines of
+  Python, it should probably be a Rust binary under `solver-cli`.
+
 ## Don't over-engineer
 
 - We have 7 days. Ship the working thing, not the elegant thing.
