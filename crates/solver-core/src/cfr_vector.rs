@@ -586,9 +586,24 @@ impl<G: VectorGame> CfrPlusVector<G> {
                 }
             }
             let strategy_rows = self.tables.strategy_sum_rows_mut(idx);
+            // SIMD: row[c] += linear_weight * own_reach[c] * s[c]
+            // A73 profile: line 511 was 11.8 % of walk self-time.
+            let lw8 = f32x8::splat(linear_weight);
             for (a_idx, row) in strategy_rows.into_iter().enumerate() {
                 let s = &strategy_take[a_idx];
-                for c in 0..cw {
+                for ch in 0..chunks {
+                    let base = ch * 8;
+                    let row_slice: [f32; 8] = row[base..base + 8].try_into().unwrap();
+                    let own_slice: [f32; 8] = own_reach[base..base + 8].try_into().unwrap();
+                    let s_slice: [f32; 8] = s[base..base + 8].try_into().unwrap();
+                    let row_v = f32x8::from(row_slice);
+                    let own_v = f32x8::from(own_slice);
+                    let s_v = f32x8::from(s_slice);
+                    let result = row_v + lw8 * own_v * s_v;
+                    let arr: [f32; 8] = result.into();
+                    row[base..base + 8].copy_from_slice(&arr);
+                }
+                for c in tail_start..cw {
                     row[c] += linear_weight * own_reach[c] * s[c];
                 }
             }
