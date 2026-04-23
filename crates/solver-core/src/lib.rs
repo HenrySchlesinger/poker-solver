@@ -15,12 +15,14 @@ pub mod cfr;
 pub mod convergence;
 pub mod game;
 pub mod matching;
+pub mod matching_simd;
 pub mod mccfr;
 
 pub use cfr::{CfrPlus, Strategy};
 pub use convergence::{best_response_value, exploitability_two_player_zero_sum};
 pub use game::{Game, InfoSetId, Player};
 pub use matching::{regret_match, regret_match_vec};
+pub use matching_simd::regret_match_simd;
 
 /// Error type surfaced by the solver core.
 #[derive(Debug, thiserror::Error)]
