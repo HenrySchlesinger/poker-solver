@@ -16,6 +16,9 @@ data/flop-cache/*.bin
 data/flop-cache/*.json
 !data/**/.gitkeep
 !data/**/README.md
+# v0.1 format-only seed ships committed (see data/flop-cache/README.md).
+# Real cache binaries from Colab precompute stay ignored.
+!data/flop-cache/flop-cache-v0.1.bin
 
 # IDE
 .idea/
