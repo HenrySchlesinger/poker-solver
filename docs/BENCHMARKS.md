@@ -193,9 +193,9 @@ and Day-4 columns get filled in as those optimizations land.
 
 | Bench | Day 1 (scalar, baseline) | Day 2 (flat tables) | Day 3 (SIMD+rayon) | Day 4 (Metal, if built) | v0.1 target |
 |---|---|---|---|---|---|
-| `river_canonical_spot`  | not yet wired *(NLHE river subgame doesn't exist; see `benches/river.rs`)* | TBD | TBD | TBD | < 300 ms |
-| `river_degenerate_spot` | not yet wired | TBD | TBD | TBD | < 50 ms |
-| `river_wet_board`       | not yet wired | TBD | TBD | TBD | < 500 ms |
+| `river_canonical_spot`  | not yet wired *(NLHE river subgame doesn't exist; see `benches/river.rs`)* | TBD | TBD | N/A (Metal slower at N=1326 — see SIMD vs Metal section below) | < 300 ms |
+| `river_degenerate_spot` | not yet wired | TBD | TBD | N/A (same reason) | < 50 ms |
+| `river_wet_board`       | not yet wired | TBD | TBD | N/A (same reason) | < 500 ms |
 
 Placeholder we measure instead until NLHE lands:
 
@@ -215,6 +215,57 @@ Placeholder we measure instead until NLHE lands:
 
 N=1326 is ~1.67 µs scalar — close to the SIMD target of < 1 µs, which is
 why A20's SIMD path is a Day-3 priority rather than Day-1.
+
+### SIMD vs scalar vs Metal (`simd_matching`, `metal_matching`)
+
+Measured on Henry's M-series MacBook, release profile, criterion mean.
+SIMD is the `wide::f32x8` path in `matching_simd.rs` (A20). Metal is the
+GPU compute path in `src/metal/` (A26/A40/A51), gated behind
+`--features metal` and `cfg(target_os = "macos")`.
+
+| N    | Scalar  | SIMD (wide::f32x8) | Metal (GPU) | SIMD vs scalar | Metal vs SIMD |
+|------|---------|---------------------|-------------|-----------------|----------------|
+| 169  | 155 ns  | **17.4 ns**         | 110 µs      | **8.9× faster** | **6320× slower** |
+| 1326 | 1.77 µs | **192.7 ns**        | 112 µs      | **9.2× faster** | **580× slower** |
+| 4096 | 5.43 µs | (not benched)       | 105 µs      | — | — |
+
+**Metal is dramatically slower than SIMD at these sizes on Apple Silicon.**
+This is the expected, publishable finding: GPU dispatch overhead on the
+shared command-buffer + wait_until_completed path is ~100 µs per call,
+which dominates the actual compute work at any N < ~100k floats. The
+dispatch overhead is roughly flat across N=169..4096, confirming that
+what we're measuring is the launch cost, not the kernel cost.
+
+Why Metal loses here specifically:
+
+1. **The problem is 1326 floats.** That's 5 KB — it fits in L1 cache on
+   any modern CPU. The GPU never gets a chance to amortize its launch
+   overhead across enough work.
+2. **We wait synchronously** (`command_buffer.wait_until_completed()`)
+   because the solver's inner loop needs the result before the next
+   regret-matching call. There's no way to hide the ~100 µs round-trip.
+3. **Apple Silicon's unified memory doesn't help** at this size. The
+   memcpy cost is negligible either way; what matters is the command
+   submission + GPU wake + kernel launch + readback fence.
+
+Metal would win at substantially larger problems — e.g. batched
+regret-matching across thousands of info sets in one dispatch, or the
+1326×1326 matmul in range-vs-range equity (not yet benched). For the
+v0.1 solver's inner loop, **the SIMD path at ~193 ns is the shipping
+choice**, and the Metal code is kept for future batched-kernel work.
+
+Run the Metal bench (requires Xcode Metal Toolchain downloaded):
+
+```bash
+cargo bench -p solver-core --features metal --bench metal_matching
+```
+
+Run the equivalence test (gates the shader's correctness vs scalar
+within 1e-4 across a 10k random-trial property sweep):
+
+```bash
+cargo test --release -p solver-core --features metal --test metal_equivalence
+```
 
 ### Full-solve Kuhn (`cfr_kuhn`)
 

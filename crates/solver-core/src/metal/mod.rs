@@ -1,12 +1,36 @@
 //! Metal compute backend for the river Vector CFR inner loop.
 //!
+//! # NOTE (A51, 2026-04-23): Metal is kept but NOT shipped as the hot path
+//!
+//! The v0.1 shipping choice at N=1326 is the `wide::f32x8` SIMD path in
+//! `matching_simd.rs`, not this GPU path. Measurements on Henry's
+//! M-series MacBook (see `docs/BENCHMARKS.md#simd-vs-scalar-vs-metal`):
+//!
+//!   * Scalar: ~1.77 µs
+//!   * SIMD:   ~193 ns  (≈ 9× faster than scalar)
+//!   * Metal:  ~112 µs  (≈ 580× **slower** than SIMD at N=1326)
+//!
+//! The GPU dispatch overhead (command-buffer submit + wake + kernel
+//! launch + `wait_until_completed` readback) is ~100 µs per call and
+//! roughly flat across N=169..4096 — we are measuring launch cost, not
+//! kernel cost. At N=1326 (5 KB of floats) the CPU SIMD path finishes
+//! before the GPU has even acknowledged the command submission.
+//!
+//! This code is kept (and tested for equivalence within 1e-4) because
+//! Metal would win on substantially larger problems: batched matching
+//! across thousands of info sets, or the 1326×1326 matmul in range-vs-
+//! range equity. For the v0.1 inner loop, SIMD is the shipping choice.
+//!
+//! See the earlier comments below for the original design rationale.
+//!
 //! Per [`docs/HARDWARE.md`](../../../../../docs/HARDWARE.md) and
 //! [`docs/LIMITING_FACTOR.md`](../../../../../docs/LIMITING_FACTOR.md), the
 //! river regret-matching kernel at N=1326 is the hottest loop in the
 //! whole solver. CPU SIMD (`wide::f32x8` via `matching_simd`) gets us
 //! to ~1µs-per-call at N=1326 on an M1 Pro. Metal compute on the same
-//! hardware expects **3–10× on top of that** because Apple Silicon's
-//! unified memory gives us a zero-copy CPU↔GPU boundary.
+//! hardware was expected to give 3–10× on top of that because Apple
+//! Silicon's unified memory gives a zero-copy CPU↔GPU boundary — in
+//! practice the dispatch overhead eats that gain whole. See NOTE above.
 //!
 //! # When this module is compiled
 //!
