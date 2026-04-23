@@ -61,9 +61,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 
 use solver_eval::card::Card;
-use solver_nlhe::flop_cache::{
-    pack_binary, CachedFlopStrategy, FlopCache, PackEntry, PotType,
-};
+use solver_nlhe::flop_cache::{pack_binary, CachedFlopStrategy, FlopCache, PackEntry, PotType};
 
 /// Number of hole-card combos in NLHE. Matches the constant inside
 /// `solver_nlhe::flop_cache`; duplicated here so this module has no
@@ -89,18 +87,8 @@ const SPR_BUCKETS: [u8; 3] = [4, 8, 15];
 /// via `Card::parse` below — if any of these is malformed we fail loudly
 /// at seed time, not at user runtime.
 const BOARDS: [&str; 12] = [
-    "AhKd2c",
-    "QsJd2c",
-    "Th7c2d",
-    "JhTh9c",
-    "9h8c7d",
-    "QhJhTs",
-    "8h8c3d",
-    "AhAc5d",
-    "KhKdKc",
-    "AhKhQh",
-    "7s6s5s",
-    "ThJhKh",
+    "AhKd2c", "QsJd2c", "Th7c2d", "JhTh9c", "9h8c7d", "QhJhTs", "8h8c3d", "AhAc5d", "KhKdKc",
+    "AhKhQh", "7s6s5s", "ThJhKh",
 ];
 
 /// The pot type for v0.1. Only `Srp` for now — 3BP/4BP/5BP will ship
@@ -438,7 +426,9 @@ mod tests {
                 .unwrap()
                 .subsec_nanos()
         ));
-        let args = SeedCacheArgs { output: tmp.clone() };
+        let args = SeedCacheArgs {
+            output: tmp.clone(),
+        };
         run_seed_cache(&args).expect("seed-cache succeeds");
 
         let size = std::fs::metadata(&tmp).unwrap().len();
