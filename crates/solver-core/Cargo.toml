@@ -28,5 +28,9 @@ name = "regret_matching"
 harness = false
 
 [[bench]]
+name = "cfr_kuhn"
+harness = false
+
+[[bench]]
 name = "flat_vs_hashmap"
 harness = false
