@@ -6,6 +6,7 @@
 //!   precompute         — solve a grid of spots and write cache files
 //!   translate-fixture  — convert a fixture JSON into a TexasSolver config
 //!   demo               — render a polished 30-second demo (A30)
+//!   md-to-ipynb        — convert a colab/*.md plan into a Jupyter .ipynb
 //!
 //! This binary is NEVER shipped to Poker Panel users — strictly a
 //! development tool. Runs on the Mac for interactive work, runs on
@@ -22,10 +23,12 @@ use clap::{Parser, Subcommand};
 
 mod demo;
 mod demo_spots;
+mod md_to_ipynb;
 mod solve_cmd;
 mod translate;
 
 use demo::{run_demo, DemoArgs};
+use md_to_ipynb::{run_md_to_ipynb, MdToIpynbArgs};
 use solve_cmd::{run_solve, SolveArgs};
 use translate::{run_translate, TargetFormat, TranslateArgs};
 
@@ -113,6 +116,21 @@ enum Cmd {
         #[arg(long, default_value = "royal")]
         spot: String,
     },
+
+    /// Convert a `colab/*.md` plan into a Jupyter `.ipynb` notebook.
+    ///
+    /// The `.md` files in `colab/` are the source-of-truth plans; this
+    /// subcommand deterministically emits the matching `.ipynb` so we
+    /// can ship "Open in Colab" badges that link to real notebooks on
+    /// GitHub. See `src/md_to_ipynb.rs` for the nbformat v4.5 details.
+    MdToIpynb {
+        /// Path to the input `.md` file.
+        #[arg(long)]
+        input: String,
+        /// Path to write the `.ipynb` to. `-` writes to stdout.
+        #[arg(long)]
+        output: String,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -172,6 +190,10 @@ fn main() -> anyhow::Result<()> {
             };
             let stdout = std::io::stdout();
             run_demo(&args, stdout.lock())
+        }
+        Cmd::MdToIpynb { input, output } => {
+            let args = MdToIpynbArgs { input, output };
+            run_md_to_ipynb(&args)
         }
     }
 }

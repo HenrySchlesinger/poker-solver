@@ -51,16 +51,28 @@ fn chance_roots(sg: &NlheSubgame) -> Vec<(SubgameState, f32)> {
 /// ignores the chance layer and produces a uselessly local number.
 /// We compute the correct chance-weighted exploitability here.
 fn solve(sg: NlheSubgame, iterations: u32) -> (f32, Strategy, CfrPlus<NlheSubgame>) {
-    let mut solver = CfrPlus::new(sg);
-    let roots = chance_roots(solver.game());
-    assert!(
-        !roots.is_empty(),
-        "subgame has no chance roots — ranges must conflict with the board"
-    );
-    solver.run_from(&roots, iterations);
-    let strat = solver.average_strategy();
-    let expl = chance_aware_exploitability(solver.game(), &strat, &roots);
-    (expl, strat, solver)
+    // CFR's recursive descent over the v0.1 NLHE bet tree can overflow
+    // the default 8 MB macOS test-thread stack on deeper spots (e.g.
+    // stack > 0 pot-sized-bet trees). Mirror `solver-cli::solve_cmd`'s
+    // 128 MB dedicated thread so the tests match the production harness.
+    std::thread::Builder::new()
+        .name("river-canonical-solve".into())
+        .stack_size(128 * 1024 * 1024)
+        .spawn(move || {
+            let mut solver = CfrPlus::new(sg);
+            let roots = chance_roots(solver.game());
+            assert!(
+                !roots.is_empty(),
+                "subgame has no chance roots — ranges must conflict with the board"
+            );
+            solver.run_from(&roots, iterations);
+            let strat = solver.average_strategy();
+            let expl = chance_aware_exploitability(solver.game(), &strat, &roots);
+            (expl, strat, solver)
+        })
+        .expect("spawn fat-stack solve thread")
+        .join()
+        .expect("solve thread panicked")
 }
 
 /// Chance-layer-aware exploitability.

@@ -502,6 +502,11 @@ fn text_to_source_lines(text: &str) -> Vec<Value> {
 /// integration tests and available for ad-hoc callers.
 ///
 /// Returns `Ok(())` if the notebook looks structurally valid.
+//
+// `dead_code` suppressed: this is a public API used from the test module
+// and available to integration tests / ad-hoc callers, but `main.rs` only
+// needs `run_md_to_ipynb`. Keeping it public is deliberate.
+#[allow(dead_code)]
 pub fn validate_nbformat_v45(notebook: &Value) -> Result<()> {
     let root = notebook
         .as_object()
@@ -549,6 +554,7 @@ pub fn validate_nbformat_v45(notebook: &Value) -> Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)] // same rationale as `validate_nbformat_v45` above
 fn validate_cell(cell: &Value) -> Result<()> {
     let obj = cell
         .as_object()

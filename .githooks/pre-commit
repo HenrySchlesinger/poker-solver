@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# poker-solver pre-commit hook — mirror the fast half of CI locally so
+# main doesn't go red from something we could have caught before pushing.
+#
+# Runs (in order):
+#   1. cargo fmt --all -- --check       (formatting drift)
+#   2. cargo clippy ... -D warnings     (lints)
+#   3. cargo test --workspace --lib --no-run  (tests compile)
+#
+# We deliberately skip running tests — a full `cargo test --release` is
+# minutes, which kills the commit loop. CI will catch any test that
+# compiles-but-fails. Warm-cache target: <30s. See CLAUDE.md for install.
+#
+# Bypass with `git commit --no-verify` if you really need to (e.g.
+# committing a known-broken WIP to snapshot it before a big rewrite).
+#
+# Wire in with:
+#   ./.githooks/install.sh
+
+set -u
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+# Use ANSI colors only when stderr is a TTY — keeps GUI clients happy.
+if [ -t 2 ]; then
+    RED=$'\033[31m'
+    GREEN=$'\033[32m'
+    YELLOW=$'\033[33m'
+    BOLD=$'\033[1m'
+    RESET=$'\033[0m'
+else
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BOLD=""
+    RESET=""
+fi
+
+fail() {
+    local stage="$1"
+    local fixhint="$2"
+    echo "" >&2
+    echo "${BOLD}${RED}pre-commit: FAIL on ${stage}.${RESET}" >&2
+    echo "${YELLOW}${fixhint}${RESET}" >&2
+    echo "" >&2
+    echo "To bypass this hook (not recommended): git commit --no-verify" >&2
+    exit 1
+}
+
+start_ts=$(date +%s)
+
+# 1. Formatting. Fast (<1s warm). Must come first so diff stays stable.
+printf "%spre-commit: cargo fmt --all -- --check%s\n" "${BOLD}" "${RESET}" >&2
+if ! cargo fmt --all -- --check; then
+    fail "cargo fmt" "Fix with: cargo fmt --all"
+fi
+
+# 2. Clippy. Slowest of the three on cold cache; warm it's a few seconds.
+printf "%spre-commit: cargo clippy --workspace --all-targets -- -D warnings%s\n" "${BOLD}" "${RESET}" >&2
+if ! cargo clippy --workspace --all-targets -- -D warnings; then
+    fail "cargo clippy" "Fix the warnings above, or suppress with #[allow(...)] where justified."
+fi
+
+# 3. Tests compile. Don't run them — too slow for a hook.
+printf "%spre-commit: cargo test --workspace --lib --no-run%s\n" "${BOLD}" "${RESET}" >&2
+if ! cargo test --workspace --lib --no-run; then
+    fail "cargo test --no-run" "Tests don't compile. Fix the errors above."
+fi
+
+end_ts=$(date +%s)
+elapsed=$((end_ts - start_ts))
+printf "%spre-commit: PASS%s (%ss)\n" "${GREEN}${BOLD}" "${RESET}" "${elapsed}" >&2
