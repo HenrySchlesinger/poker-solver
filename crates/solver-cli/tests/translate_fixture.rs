@@ -231,14 +231,14 @@ fn translate_flop_fixture_emits_all_streets() {
     assert_eq!(parsed.get("set_pot").unwrap()[0], "60");
     assert_eq!(parsed.get("set_effective_stack").unwrap()[0], "970");
     assert_eq!(parsed.get("set_board").unwrap()[0], "Ah,Kd,2c");
-    // hero=OOP convention.
-    assert_eq!(
-        parsed.get("set_range_oop").unwrap()[0],
-        "AA, KK, AKs, AKo, QQ"
-    );
+    // hero=OOP convention. Ranges are whitespace-stripped before being
+    // emitted because TexasSolver's config parser rejects lines with
+    // more than two space-separated tokens — so `"AA, KK"` round-trips
+    // to `"AA,KK"`.
+    assert_eq!(parsed.get("set_range_oop").unwrap()[0], "AA,KK,AKs,AKo,QQ");
     assert_eq!(
         parsed.get("set_range_ip").unwrap()[0],
-        "77, 88, 99, TT, AQs, AQo"
+        "77,88,99,TT,AQs,AQo"
     );
 
     // Full bet-size coverage: 6 lines per street × 3 streets = 18 total.
@@ -280,8 +280,9 @@ fn translate_river_fixture_emits_river_only() {
     assert_eq!(parsed.get("set_pot").unwrap()[0], "200");
     assert_eq!(parsed.get("set_effective_stack").unwrap()[0], "800");
     assert_eq!(parsed.get("set_board").unwrap()[0], "Ah,Kd,2c,Qc,4d");
-    assert_eq!(parsed.get("set_range_oop").unwrap()[0], "AA, KK");
-    assert_eq!(parsed.get("set_range_ip").unwrap()[0], "QQ, JJ, TT");
+    // Whitespace stripped; see note in flop-fixture test above.
+    assert_eq!(parsed.get("set_range_oop").unwrap()[0], "AA,KK");
+    assert_eq!(parsed.get("set_range_ip").unwrap()[0], "QQ,JJ,TT");
 
     // Only 6 set_bet_sizes lines — just the river.
     let bet_size_lines = parsed.get("set_bet_sizes").unwrap();
@@ -321,9 +322,10 @@ fn translate_with_empty_villain_range_passes_through() {
     // The super-tight villain range should survive verbatim — the
     // translator does not second-guess range syntax.
     assert_eq!(parsed.get("set_range_ip").unwrap()[0], "AA");
+    // Whitespace stripped; see note in flop-fixture test above.
     assert_eq!(
         parsed.get("set_range_oop").unwrap()[0],
-        "AA, KK, QQ, JJ, TT, 99, 88, 77"
+        "AA,KK,QQ,JJ,TT,99,88,77"
     );
     assert_eq!(parsed.get("set_pot").unwrap()[0], "40");
     assert_eq!(parsed.get("set_effective_stack").unwrap()[0], "1000");
