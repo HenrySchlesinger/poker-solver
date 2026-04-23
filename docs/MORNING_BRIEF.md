@@ -3,6 +3,16 @@
 Audit agent A61 on HEAD `96db52e`. Sprint day 2 of 7. Target tag:
 2026-04-29.
 
+**Post-audit update (HEAD `c05d926`, A62/A63/A64 landed):** river
+benches are now wired to real NLHE (A62, resolving blocker #3), 5 of
+20 TexasSolver oracle fixtures have reference outputs captured (A63,
+halving the remaining scope of blocker #4 to 15 spots + full auto-diff),
+and CfrPlusFlat is the default CLI solver (A64, −26% on degenerate,
+flagged Vector CFR as v0.2). The `river_canonical_spot` still
+extrapolates to ~4.35 s @ 1000 iters vs the 300 ms v0.1 target; that
+is now a documented v0.2 gap, not a v0.1 blocker. Realistic tag date
+unchanged at 2026-04-27/28.
+
 ## What landed overnight
 
 - **A58 `5629935`** — fixed the 30 GB river-CFR+ OOM; stack>0 now

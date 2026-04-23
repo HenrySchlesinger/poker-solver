@@ -43,6 +43,18 @@ release. It will be rolled into the next version on tag day.
   N=1326 — scalar is 1.77 µs and SIMD is 193 ns on the same machine.
   **SIMD beats Metal ~580× at river scale.** SIMD is the shipping
   path; Metal is retained for future batched-kernel work.
+- `CfrPlusFlat` — flat-array `RegretTables` variant of CFR+, built for
+  cache-friendliness over the HashMap-backed reference `CfrPlus` (A64).
+  `CfrPlusFlat::walk` calls `regret_match_simd` internally, so future
+  wide-action layouts vectorize automatically; for the current NLHE
+  bet trees (≤5 actions) it short-circuits to scalar below
+  `SIMD_THRESHOLD=8`. Convergence is guarded against the classic
+  implementation by `tests/flat_equivalence.rs` (10k-iter Kuhn at 1e-6
+  tolerance). On the real NLHE river benches: −9.1% on
+  `river_canonical_spot`, −26.2% on `river_degenerate_spot`, −11.7%
+  on `river_wet_board` — the flat layout, not SIMD, carried the gain.
+  The remaining ~15× gap to the `<300 ms @ 1000 iters` v0.1 perf
+  target is documented as v0.2 work (Vector CFR or rayon tree-walk).
 
 ### Added — NLHE primitives (`solver-nlhe`)
 
@@ -67,6 +79,18 @@ release. It will be rolled into the next version on tag day.
   rejection.
 - Shares `combo_index` with `solver-eval` so ranges and evaluators
   agree on how 1326 combos are numbered.
+- River CFR+ OOM fix (A58): `NlheSubgame::apply` now translates a bare
+  `Action::AllIn` into a concrete `Bet(stack_start)` or
+  `Raise(stack_start)` at subgame-build time. Previously the river
+  action-log's `pot_contributions_on` returned `(0, 0)` for AllIn,
+  causing `legal_river_actions` to re-enter the "no aggression yet"
+  branch and emit another {Check, Bet, AllIn} on a subsequent pass —
+  producing an unbounded tree and >30 GB RSS OOM on any non-trivial
+  spot. River solves with `stack > 0` are now bounded; the blast
+  radius is narrow (no changes to `ActionLog` or
+  `pot_contributions_on`). Two of the three `river_canonical` walk
+  tests that A56 tracked as `#[ignore]` can now run on non-zero
+  stacks; remaining ignores are documented under `Known gaps`.
 
 ### Added — poker evaluation (`solver-eval`)
 
@@ -122,12 +146,49 @@ release. It will be rolled into the next version on tag day.
   consumer — `swift build` succeeded in 3.92 s, the executable
   resolved `solver_version()` correctly. Artifact sizes + SHA-256s
   recorded in `docs/RELEASE_PROCESS.md`.
+- `solver_solve` wired end-to-end (A59). Replaces the prior stub with
+  a real dispatch into `solver_core::CfrPlus` (and post-A64,
+  `CfrPlusFlat`) + `solver_nlhe::NlheSubgame`, mirroring the
+  `solver-cli solve` pipeline so FFI and CLI agree numerically. Null
+  pointers return `InvalidInput`; `HandState` is validated
+  (`board_len==5`, `bet_tree_version==0`, `to_act∈{0,1}`, board cards
+  in `0..52` distinct, ranges non-empty); the CFR walk runs on a
+  128MB-stack worker thread (same pattern as `solve_cmd.rs`) to
+  avoid blowing macOS's 8MB default stack. Hardcoded at 100
+  iterations for v0.1; a TODO in `solver-ffi/src/lib.rs` flags the
+  v0.2 ABI bump that adds an `iterations` field to `HandState`.
+  Clippy clean, `#[doc] Safety` blocks on every `unsafe` symbol,
+  happy-path smoke tests in `solver-ffi/tests/`.
+- Regenerated `crates/solver-ffi/include/solver.h` post-A59: parameter
+  rename `_input`→`input`, `_output`→`output` (cbindgen regen after
+  the stub was replaced), expanded doc-comments with v0.1 caveats +
+  Safety blocks. The stale "stack=0 until A58 lands" caveat that A59
+  wrote was updated once A58 actually landed.
+- v0.1.0-test2 dress rehearsal (A60): a second xcframework scratch
+  consumer, this time invoking `solver_solve` on the royal-tie spot
+  and asserting `hero_equity ~ 0.5`. Artifact sizes, SHA-256s, and
+  live-consumer output appended to `docs/RELEASE_PROCESS.md`. Three
+  FFI paths are now verified green: Rust smoke test, Swift harness,
+  SwiftPM xcframework consumer.
 
 ### Added — CLI tools (`solver-cli`)
 
 - `solve` subcommand with JSON output, plus integration tests for
   the CLI binary. This is the dev harness — Poker Panel does not
-  ship it.
+  ship it. Wired end-to-end (A47 `3328a99`): `--stack 0` is now
+  accepted (it's the only river configuration that solves cleanly
+  under the v0.1 bet tree), the end-to-end fixture was replaced
+  with the "trivial all-in showdown" (hero=AhKh, villain=AsAd on
+  2c7d9hTsJs, stack=0) that collapses to Check/Check → showdown, and
+  the royal-vs-royal tie spec spot reports `hero_equity=0.5`,
+  `exploitability=0.0`, `compute_ms=7`. JSON output now populates
+  `action_frequencies`, `ev_per_action`, `hero_equity`,
+  `exploitability`, `iterations`, `compute_ms`, and `solver_version`.
+- `--solver flat|classic` flag on `solve` (A64). Defaults to `flat`
+  (`CfrPlusFlat` with flat `RegretTables` + SIMD regret matching).
+  `classic` keeps the HashMap-backed `CfrPlus` reference
+  implementation available as an escape hatch for reproducibility
+  checks.
 - `translate-fixture` subcommand wired to the `translate` module
   for TexasSolver differential-test fixture conversion.
 - `demo` subcommand — four spots (`royal`, `coinflip`,
@@ -208,6 +269,30 @@ release. It will be rolled into the next version on tag day.
 - Benchmarks: `cfr_kuhn` (CFR+ full-solve at 10 / 100 / 1000
   iters), SIMD vs scalar regret matching, `flat_vs_hashmap` table
   lookup, river inner-loop criterion harness.
+- Real NLHE river benches (A62): `benches/river.rs` swapped from a
+  Kuhn placeholder to genuine `NlheSubgame` + `chance_roots` + CFR+
+  end-to-end walks. Three spots:
+  - `river_canonical_spot` — AhKhQh2d4s, AA/KK/AKs vs 22+/AJs+/KQs,
+    100 iters, 478.23 ms baseline → 434.65 ms post-A64 flat+SIMD.
+  - `river_degenerate_spot` — already-all-in shape, 1000 iters,
+    363.13 µs baseline → 268.15 µs post-A64 (−26.2%). 137× under the
+    50 ms target.
+  - `river_wet_board` — JhTh9c8h7s, AA/AKs/QTs vs 22+/AQs+, 100
+    iters, 667.14 ms baseline → 589.27 ms post-A64 (−11.7%).
+  Canonical + wet stay at 100 iters because the pre-SIMD scalar inner
+  loop is ~5–7 ms/iter; 1000 × 100 samples would run 500–700 s per
+  bench. Full table with captured-date snapshots lives in
+  `docs/BENCHMARKS.md` and `bench-history/`.
+- TexasSolver oracle coverage extended from 1 → 5 river fixtures
+  (A63). `crates/solver-cli/tests/fixtures/oracle_outputs/` now holds
+  `spot_015` (A50), `spot_016`, `spot_017`, `spot_018`, `spot_020`
+  reference outputs: TexasSolver's `.our.json`,
+  `.texassolver.json`, `.ts-log.txt`, and `.tsconfig` for each
+  fixture, plus an extended Status table in `docs/DIFFERENTIAL_TESTING.md`
+  covering TS iteration count / convergence time, our-side
+  `compute_ms`, and an auto-diff-ready flag. All five share the same
+  three A50-flagged blockers to full auto-diff (combo rollup,
+  bet-size name map, log-line EV parse).
 - Workspace deps: `proptest`, `zstd`, `wide` (SIMD), `metal` +
   `objc` (feature-gated), `Xoshiro256StarStar` (deterministic PRNG).
 
@@ -222,8 +307,16 @@ release. It will be rolled into the next version on tag day.
 
 ### Changed
 
-- Toolchain bumped to 1.85.0 (`rs_poker` requires edition 2024).
+- Toolchain pinned to 1.85.0 (`rs_poker` requires edition 2024).
   Prior pins (1.75 MSRV, 1.82.0 channel) noted in history only.
+- `solver_version()` bumped `"0.1.0-wip"` → `"0.1.0-dev"` when
+  `solver_solve` was wired (A59). The tag-day flip to `"0.1.0"` is
+  tracked under `Known gaps for v0.1 tag`.
+- Default CLI solver is now `CfrPlusFlat` (A64); `--solver classic`
+  remains available as the HashMap-backed reference fallback. Same
+  switch applies inside `solver-ffi::solver_solve`, guarded by
+  `tests/flat_equivalence.rs` on Kuhn and by `solver-cli/tests/cli.rs`
+  on NLHE river for JSON shape.
 
 ### Known gaps (tracked for `v0.1.0`)
 
@@ -231,18 +324,46 @@ release. It will be rolled into the next version on tag day.
   possible.
 - Three `river_canonical` CFR+ walk tests (`no_brainer_fold`,
   `even_match_is_symmetric`, `convergence_decreases_exploitability`)
-  are `#[ignore]`d: they hit SIGKILL on 64 GB Apple-Silicon hosts
-  (30 GB peak RSS in 193 s) and would OOM the 7 GB macOS-14 CI
-  runners. Allocation rate (~155 MB/s) points at a runaway inside
-  `CfrPlus::walk` or the `NlheSubgame` `Game` impl rather than
-  tree size.
+  were `#[ignore]`d on 64 GB Apple-Silicon hosts and macOS-14 CI
+  runners. A58's AllIn → Bet/Raise translation fix addresses the
+  root cause (runaway action-tree re-expansion); the ignores remain
+  until A58 is corroborated against the full CI runner memory
+  budget on tag day.
 - Real Colab-generated flop-cache data (the shipped v0.1 cache is
   format-only placeholder).
 - Full 20-spot TexasSolver validation battery run — the harness is
-  in, pending fixture translation polish + TS EV parsing (tracked
-  in `docs/DIFFERENTIAL_TESTING.md`).
+  in, 5 of 20 fixtures have reference outputs captured (A63), full
+  auto-diff pending fixture translation polish + TS EV parsing
+  (tracked in `docs/DIFFERENTIAL_TESTING.md`).
 - Multi-way (3+ player) pots, ICM, PLO, exploit / node locking —
   all post-v0.1.
+
+### Known gaps for v0.1 tag
+
+Five concrete blockers A61's ship audit identified — these are the
+items that must clear before `v0.1.0` is cut, distinct from the
+out-of-scope `Known gaps (tracked for v0.1.0)` above.
+
+1. **`solver_version()` flip** — bump the string from `"0.1.0-dev"`
+   to `"0.1.0"` on the tag commit
+   (`crates/solver-ffi/src/lib.rs:222`).
+2. **Real Colab preflop-v0.1.bin generation** — loader is in,
+   `data/preflop-ranges/` is `.gitkeep`-only. Blocked on Henry to
+   run the precompute Colab notebook.
+3. **Vector CFR perf work** — v0.2 path, flagged by A64. The
+   post-A64 `river_canonical_spot` extrapolates to ~4.35 s @ 1000
+   iters, ~15× over the `<300 ms @ 1000 iters` v0.1 target. Closing
+   the gap needs either (a) vector-CFR layout so SIMD bites at
+   N=1326, or (b) rayon tree-walk fan-out. Documented in
+   `docs/BENCHMARKS.md#why-the-jump-is-smaller-than-expected`.
+4. **Extend TexasSolver diff from 5 → 20 spots** — A63 captured 5
+   fixtures (`spot_015`–`spot_020` minus `spot_019`). The remaining
+   15 spots plus full auto-diff of all 20 lands before tag day.
+5. **Exploitability = 101 on `spot_018`** — flagged by A63 / A60, a
+   possible correctness bug on the quads-possible
+   KhKdKc-2s-4h river. Needs triage before tag day; our solver
+   takes 31.5 s on this fixture where TexasSolver converges to
+   0.28% in 133 ms, so the discrepancy is worth isolating.
 
 ---
 
