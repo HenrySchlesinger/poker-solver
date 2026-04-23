@@ -93,12 +93,14 @@ pub extern "C" fn solver_new() -> *mut SolverHandle {
 }
 
 /// Free a solver handle.
+///
+/// Passing a null pointer is a no-op (matches standard C `free` semantics).
 #[no_mangle]
 pub extern "C" fn solver_free(handle: *mut SolverHandle) {
-    if handle.is_null() {
-        return;
+    if !handle.is_null() {
+        // TODO (Day 4): reclaim scratch arenas associated with `handle`.
+        let _ = handle;
     }
-    // TODO (Day 4): free scratch.
 }
 
 /// Solve a spot live.
@@ -123,10 +125,7 @@ pub extern "C" fn solver_solve(
 /// Returns `Ok` on hit, `CacheMiss` on miss (caller should call
 /// `solver_solve`), `InvalidInput` on malformed args.
 #[no_mangle]
-pub extern "C" fn solver_lookup_cached(
-    _input: *const HandState,
-    _output: *mut SolveResult,
-) -> i32 {
+pub extern "C" fn solver_lookup_cached(_input: *const HandState, _output: *mut SolveResult) -> i32 {
     let result = catch_unwind(|| {
         // TODO (Day 5, agent A3): dispatch to cache lookup.
         SolverStatus::CacheMiss as i32

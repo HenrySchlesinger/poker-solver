@@ -20,4 +20,7 @@ solver-eval = { workspace = true }
 bytemuck = { workspace = true }
 
 [build-dependencies]
-# TODO (Day 3, agent A6): add cbindgen = "0.26" once header is scoped.
+# Used by build.rs to regenerate include/solver.h from lib.rs.
+# If cbindgen fails (e.g., a stripped-down CI without the build-dep graph),
+# build.rs emits a cargo:warning and continues so the library still compiles.
+cbindgen = "0.26"
