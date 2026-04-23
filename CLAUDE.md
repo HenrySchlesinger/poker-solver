@@ -80,22 +80,31 @@ Before doing anything substantive in this repo, read:
 - If you find yourself writing more than ~30 lines of bash or ~50 lines of
   Python, it should probably be a Rust binary under `solver-cli`.
 
-## No paid services (Henry's rule)
+## No paid GTO / solver services (Henry's rule)
 
-- **We are building our own. No paid third-party services.** No Colab Pro,
-  no Deepsolver API, no GTO Wizard API, no PioSolver licenses, no paid
-  cloud compute. Any agent that proposes adding a paid dependency must
-  stop and flag it — don't just add it.
+- **We are building our own solver.** Do NOT add paid GTO / solver
+  dependencies: no Deepsolver API, no GTO Wizard API, no PioSolver
+  licenses, no third-party commercial solvers. Those are the services
+  our product is designed to REPLACE, so depending on them defeats the
+  whole point.
 - **Free FLOSS is fine.** `rs_poker`, `zstd`, `rand`, `wide`, `criterion`,
   `proptest`, `cbindgen`, TexasSolver (used only as a locally-built test
-  oracle — not redistributed) all remain in scope. The constraint is
-  against PAID services, not against free open-source dependencies.
-- **Precompute runs on Colab FREE tier.** Parallelism comes from launching
-  multiple free browser sessions (embarrassingly parallel), not from
-  upgrading to Pro. If a free session hits the 12-hour cap, the resumable
-  logic in the notebooks picks up where it left off.
-- **Fallback if free tier is insufficient:** an overnight local run on
-  Henry's Mac — same Rust binary either way. Never a paid upgrade.
+  oracle — not redistributed) all remain in scope.
+- **Compute is pragmatic.** Colab free tier is the default for precompute;
+  Colab Pro ($10/mo) is OK if Henry genuinely needs the throughput for
+  overnight jobs. The rule is "don't pay for stuff we can build or do
+  ourselves," not "never spend a dollar on compute." Default to free, and
+  if free is slow, ask before paying.
+
+## Be kind to Henry's machine
+
+- Henry's Mac has been memory-pressured by many concurrent Claude agents.
+  Prefer `cargo check -p <crate>` over `cargo build --workspace` when
+  you only need to verify a single crate compiles. Don't run more than
+  one heavy bench or release build at a time.
+- If you're dispatched alongside other agents (common in this repo's
+  speedrun mode), assume they may also be running cargo concurrently.
+  Your build doesn't need to be the first one to finish.
 
 ## Don't over-engineer
 

@@ -172,9 +172,13 @@ Binary format is the same data packed with `bytemuck`. See
 | Item | Cost |
 |---|---|
 | Colab free tier | $0 |
+| Colab Pro (optional, for throughput on overnight jobs) | $10/mo |
 | Google Drive storage | Free up to 15 GB; we'll use < 5 GB |
 
-**Monthly precompute budget: $0.** Henry's rule — no paid services.
+**Default: free tier.** Colab Pro is OK if Henry genuinely needs the
+throughput — the rule is "don't pay for stuff our product REPLACES"
+(solvers, GTO APIs), not "never spend a dollar on compute." Pick free
+tier first and only upgrade if free runs are blocking progress.
 
 ## What to NOT do
 
