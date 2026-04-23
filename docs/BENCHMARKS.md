@@ -9,10 +9,66 @@ continuously and refuse regressions.
 
 ## Running benchmarks
 
+Run everything under `solver-core`:
+
 ```bash
 cd ~/Desktop/poker-solver
 cargo bench -p solver-core
 ```
+
+Or target one bench file at a time (much faster while iterating):
+
+```bash
+# Regret-matching microbench (sizes 3, 8, 26, 169, 1326)
+cargo bench -p solver-core --bench regret_matching
+
+# Full CFR+ solve on Kuhn Poker (10, 100, 1000 iterations)
+cargo bench -p solver-core --bench cfr_kuhn
+
+# River KPI harness. Until NLHE lands, only the Kuhn placeholder
+# subgroup runs. The real `river_canonical_spot` / `river_degenerate_spot`
+# / `river_wet_board` benches are stubs that print "SKIPPED" — flip the
+# env var once `solver-nlhe::NlheSubgame` is implemented:
+cargo bench -p solver-core --bench river
+SOLVER_RUN_RIVER_BENCH=1 cargo bench -p solver-core --bench river
+```
+
+Filter within a bench file by passing a substring:
+
+```bash
+cargo bench -p solver-core --bench regret_matching -- 1326
+cargo bench -p solver-core --bench cfr_kuhn -- /1000
+```
+
+### Saving and comparing baselines
+
+Before a refactor, save the current numbers as a named baseline:
+
+```bash
+cargo bench -p solver-core -- --save-baseline pre-change
+```
+
+After the refactor, compare against it. Criterion prints a regression
+table showing percent change for every bench:
+
+```bash
+cargo bench -p solver-core -- --baseline pre-change
+```
+
+Baselines are stored under `target/criterion/<bench>/<baseline-name>/`.
+They are per-workspace and not checked in; re-measure from `main` when
+you need a fresh baseline.
+
+### What counts as a regression
+
+**> 5% slower on any bench is a regression.** Commits that cause one
+without a written justification in the commit message are rejected.
+
+Criterion's report makes this explicit: the "change" row flags any bench
+with `p < 0.05` and a mean change outside a user-specified threshold.
+The default threshold is 2 %; we raise the rejection bar to 5 % to absorb
+hardware noise on a laptop, but the actual criterion output still shows
+smaller changes so you can spot drift.
 
 Criterion outputs HTML reports to `target/criterion/` and summary stats
 to stdout. The summary is what goes in commit messages and PR descriptions.
@@ -43,11 +99,41 @@ More action complexity, more nodes. Stress test for the node count.
 
 **Target: < 500 ms on M1 Pro.**
 
-### `regret_matching_inner`
-Pure microbench: 1326-wide regret matching. Measures the SIMD inner loop
-in isolation.
+### `regret_matching_scalar/{3, 8, 26, 169, 1326}`
+Microbench group in `benches/regret_matching.rs`. Runs the scalar
+`regret_match` inner loop at every size that shows up in practice:
 
-**Target: < 1 µs per call.**
+- **3** — tiny bet tree (check / bet / raise)
+- **8** — wider bet-sizing tree
+- **26** — Kuhn-shaped action sets after history
+- **169** — NLHE pre-flop hand grid
+- **1326** — all NLHE combos (the river hot path)
+
+Inputs are seeded random f32 regrets from
+`rand_xoshiro::Xoshiro256PlusPlus` with `Seed([1; 32])` — reproducible
+across runs on the same hardware. Agent A20 owns the SIMD counterpart in
+`benches/simd_matching.rs`; DO NOT add SIMD variants to this file.
+
+```bash
+cargo bench -p solver-core --bench regret_matching
+```
+
+**Target (N=1326): < 1 µs per call (post-SIMD). Scalar baseline is
+higher — see table below.**
+
+### `cfr_plus_kuhn/{10, 100, 1000}`
+Full CFR+ solve on Kuhn Poker at three iteration counts. Reports wall
+time and iterations/sec. Not a direct proxy for NLHE, but catches
+regressions in the generic `CfrPlus::run_from` tree walk that the NLHE
+river benches would otherwise only catch after Day 3.
+
+```bash
+cargo bench -p solver-core --bench cfr_kuhn
+```
+
+There is also a `cfr_plus_kuhn_single_iteration` bench that measures one
+`iterate_from` call on a fresh solver — useful for reasoning about
+inner-loop cost in isolation from per-iteration averaging.
 
 ### `range_vs_range_equity`
 Pure equity calculation (no CFR). 1326×1326 matmul. Sanity-check for the
@@ -95,17 +181,61 @@ actually fast.
 
 ## The baseline table
 
-Numbers get filled in as Day 3 completes. Until then, targets only.
+Numbers from `cargo bench -p solver-core --bench <name>` on Henry's
+MacBook (Apple Silicon, `cargo 1.95.0 stable`, release profile with
+`lto = "fat"`, `codegen-units = 1`). All times are criterion's mean
+(middle of the three-number interval it reports).
 
-| Bench | Day 2 (scalar) | Day 3 (SIMD+rayon) | Day 4 (Metal, if built) | v0.1 target |
-|---|---|---|---|---|
-| `river_canonical_spot` | TBD | TBD | TBD | < 300 ms |
-| `river_degenerate_spot` | TBD | TBD | TBD | < 50 ms |
-| `river_wet_board` | TBD | TBD | TBD | < 500 ms |
-| `regret_matching_inner` | TBD | TBD | TBD | < 1 µs |
-| `range_vs_range_equity` | TBD | TBD | TBD | < 2 ms |
-| `turn_canonical_spot` | TBD | TBD | TBD | < 30 s |
-| `cache_lookup` | TBD | — | — | < 10 µs |
+Day-1 (scalar) numbers are filled in and marked `baseline`. Day-2, Day-3
+and Day-4 columns get filled in as those optimizations land.
+
+### Primary KPI (river)
+
+| Bench | Day 1 (scalar, baseline) | Day 2 (flat tables) | Day 3 (SIMD+rayon) | Day 4 (Metal, if built) | v0.1 target |
+|---|---|---|---|---|---|
+| `river_canonical_spot`  | not yet wired *(NLHE river subgame doesn't exist; see `benches/river.rs`)* | TBD | TBD | TBD | < 300 ms |
+| `river_degenerate_spot` | not yet wired | TBD | TBD | TBD | < 50 ms |
+| `river_wet_board`       | not yet wired | TBD | TBD | TBD | < 500 ms |
+
+Placeholder we measure instead until NLHE lands:
+
+| Bench | Day 1 (scalar, baseline) | Notes |
+|---|---|---|
+| `river_placeholder_kuhn_1000_iters` | **5.39 ms** | Kuhn Poker, 1000 CFR+ iterations. Proxy for wiring; NOT a proxy for NLHE river cost. |
+
+### Inner-loop microbench (`regret_matching` — scalar only, Day 1 owns this file)
+
+| Bench | Day 1 (scalar, baseline) | Target |
+|---|---|---|
+| `regret_matching_scalar/3`    | **2.26 ns**  | — |
+| `regret_matching_scalar/8`    | **3.29 ns**  | — |
+| `regret_matching_scalar/26`   | **12.72 ns** | — |
+| `regret_matching_scalar/169`  | **141.8 ns** | — |
+| `regret_matching_scalar/1326` | **1.67 µs**  | < 1 µs post-SIMD (A20) |
+
+N=1326 is ~1.67 µs scalar — close to the SIMD target of < 1 µs, which is
+why A20's SIMD path is a Day-3 priority rather than Day-1.
+
+### Full-solve Kuhn (`cfr_kuhn`)
+
+| Bench | Day 1 (scalar, baseline) | Iterations/sec |
+|---|---|---|
+| `cfr_plus_kuhn/10`                | **91.6 µs**  | ~109k iters/s |
+| `cfr_plus_kuhn/100`               | **528.7 µs** | ~189k iters/s |
+| `cfr_plus_kuhn/1000`              | **5.10 ms**  | ~196k iters/s |
+| `cfr_plus_kuhn_single_iteration`  | **6.01 µs**  | — |
+
+Linear scaling (10 → 100 → 1000 iters produces ~10× → ~100× wall time,
+with the fixed "fresh solver + avg-strategy computation" overhead
+visible at the 10-iter size). Good signal the tree walk is steady-state.
+
+### Future benches (not yet implemented)
+
+| Bench | Day N (scalar) | Day N (optimized) | v0.1 target |
+|---|---|---|---|
+| `range_vs_range_equity` | TBD | TBD | < 2 ms full-board, < 20 µs/iter at river |
+| `turn_canonical_spot`   | TBD | TBD | < 30 s (hard limit 60 s) |
+| `cache_lookup`          | TBD | — | < 10 µs |
 
 ## Flamegraphs
 

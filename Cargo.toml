@@ -4,6 +4,7 @@ members = [
     "crates/solver-core",
     "crates/solver-nlhe",
     "crates/solver-eval",
+    "crates/solver-eval-reference",
     "crates/solver-ffi",
     "crates/solver-cli",
 ]
@@ -21,6 +22,7 @@ rust-version = "1.75"
 solver-core = { path = "crates/solver-core" }
 solver-nlhe = { path = "crates/solver-nlhe" }
 solver-eval = { path = "crates/solver-eval" }
+solver-eval-reference = { path = "crates/solver-eval-reference" }
 solver-ffi  = { path = "crates/solver-ffi"  }
 
 # external
@@ -35,6 +37,8 @@ smallvec = "1"           # small-stack action sets
 bytemuck = "1"           # packed-struct casts
 clap = { version = "4", features = ["derive"] }
 criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1.5"         # property-based testing (A24)
+zstd = { version = "0.13", default-features = false }  # binary-cache compression (A33)
 
 [profile.release]
 opt-level = 3
