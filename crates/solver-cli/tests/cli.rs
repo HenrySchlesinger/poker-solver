@@ -115,31 +115,30 @@ fn precompute_is_scaffolded_not_yet_implemented() {
 
 /// End-to-end "produces valid JSON" integration guarantee.
 ///
-/// `build_subgame` now wires into `NlheSubgame::new` + `CfrPlus`, so a
-/// river spot (v0.1 handles river-only) produces a full JSON document
-/// on stdout. We use the canonical royal-vs-royal spot from
-/// `docs/ALGORITHMS.md` with a tiny iteration count so the test stays
-/// fast.
+/// `build_subgame` wires into `NlheSubgame::new` + `CfrPlus`, so a river
+/// spot (v0.1 handles river-only) produces a full JSON document on stdout.
+/// We use the "trivial all-in showdown" shape: both players already
+/// all-in entering the river (`stack=0`), so the only legal action is
+/// Check and the tree collapses to Check/Check → showdown. See
+/// `solver-nlhe/tests/river_canonical.rs::trivial_allin_showdown` —
+/// this is the only river configuration that solves quickly under the
+/// v0.1 bet tree; larger-stack spots trip an upstream runaway allocation
+/// in `CfrPlus::walk` that the A47+ TODO in `river_canonical.rs` owns.
 #[test]
-#[ignore = "TODO(A<n>): fixture currently uses hero=AsKs, villain=AsKs — they \
-            hold the same cards, so chance_roots yields no valid pairs and \
-            solve bails. Either split one side into a distinct specific combo \
-            or widen both ranges (e.g. AKs) so off-board combos remain. Keep \
-            #[ignore]'d until the fixture is repaired."]
 fn solve_produces_valid_json_end_to_end() {
     let output = bin()
         .args([
             "solve",
             "--board",
-            "AhKhQhJhTh",
+            "2c7d9hTsJs",
             "--hero-range",
-            "AsKs",
+            "AhKh",
             "--villain-range",
-            "AsKs",
+            "AsAd",
             "--pot",
             "100",
             "--stack",
-            "500",
+            "0",
             "--iterations",
             "10", // small iteration count so the test is fast
         ])

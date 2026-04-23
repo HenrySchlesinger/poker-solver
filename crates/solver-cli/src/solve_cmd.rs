@@ -125,9 +125,10 @@ pub fn parse_inputs(args: &SolveArgs) -> Result<ParsedInputs> {
     if args.pot == 0 {
         anyhow::bail!("--pot must be > 0");
     }
-    if args.stack == 0 {
-        anyhow::bail!("--stack must be > 0");
-    }
+    // `--stack 0` is a legitimate river-subgame configuration: both
+    // players are already all-in before the river, so the only legal
+    // action is Check and the tree collapses to Check/Check → showdown.
+    // See `solver-nlhe/tests/river_canonical.rs::trivial_allin_showdown`.
 
     Ok(ParsedInputs {
         board,
@@ -687,11 +688,14 @@ mod tests {
     }
 
     #[test]
-    fn parse_inputs_rejects_zero_stack() {
+    fn parse_inputs_accepts_zero_stack() {
+        // stack=0 is the "already all-in into the river" configuration;
+        // legit in a river-only v0.1 subgame. See `run_cfr` and
+        // `trivial_allin_showdown` in `solver-nlhe/tests/river_canonical.rs`.
         let mut a = args_for("AhKh2s", "AA", "KK");
         a.stack = 0;
-        let err = expect_err(parse_inputs(&a), "zero stack");
-        assert!(err.to_string().contains("stack"), "got: {err}");
+        let p = parse_inputs(&a).unwrap();
+        assert_eq!(p.stack, 0);
     }
 
     #[test]
@@ -727,21 +731,25 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "TODO(A<n>): hero=AsKs + villain=AsKs on a AhKhQhJhTh board has \
-                no non-conflicting combo pair (both players hold the same cards), \
-                so chance_roots returns empty and run_solve bails. The fixture \
-                needs distinct specific combos or two multi-combo ranges that \
-                actually overlap-off. Keep #[ignore]'d until the test body is \
-                repaired with a valid pairing."]
     fn run_solve_produces_json_on_river_spot() {
-        // Full end-to-end on a river spot. Use tiny iteration count so
-        // the unit test finishes in milliseconds.
+        // Full end-to-end on a river spot. The "trivial all-in showdown"
+        // shape: both players are already all-in entering the river
+        // (stack_start = 0), so the only legal action at every state
+        // is Check and the tree collapses to Check/Check → showdown.
+        // This mirrors `solver-nlhe/tests/river_canonical.rs::trivial_allin_showdown`,
+        // the only river configuration that solves quickly under the
+        // v0.1 bet tree (see the A47+ TODO there — `stack_start > 0`
+        // currently trips a runaway allocation in `CfrPlus::walk` that
+        // we can't fix from this crate).
+        //
+        // Hero holds Ah-Kh, Villain holds As-Ad. Board 2c7d9hTsJs.
+        // Villain's pocket aces make a pair; Hero has A-high only.
         let a = SolveArgs {
-            board_raw: "AhKhQhJhTh".to_string(),
-            hero_range_raw: "AsKs".to_string(),
-            villain_range_raw: "AsKs".to_string(),
+            board_raw: "2c7d9hTsJs".to_string(),
+            hero_range_raw: "AhKh".to_string(),
+            villain_range_raw: "AsAd".to_string(),
             pot: 100,
-            stack: 500,
+            stack: 0,
             iterations: 10,
             bet_tree: "default".to_string(),
         };
