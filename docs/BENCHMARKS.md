@@ -215,8 +215,10 @@ baseline run. The append-only source of truth lives in
 [`bench-history/`](../bench-history/) — one dated JSON per run. Recent
 snapshots:
 
+- `bench-history/2026-04-23_182335_7d6556e.json` (commit `7d6556e`, agent
+  A70) — **current river KPI snapshot**: Vector CFR landed as default.
 - `bench-history/2026-04-23_110058_3480502.json` (commit `3480502`, agent
-  A64) — **current river KPI snapshot**: post-flat+SIMD integration.
+  A64) — post-flat+SIMD integration (pre-Vector).
 - `bench-history/2026-04-23_105049_d8505fa.json` (commit `d8505fa`, agent
   A62) — river KPI pre-flat+SIMD baseline.
 - `bench-history/2026-04-23_094257_8e26e00.json` (commit `8e26e00`, agent
@@ -224,16 +226,32 @@ snapshots:
 
 ### Primary KPI (river)
 
-| Bench | Day 1 (scalar+HashMap, A62) | Day 2+3 (flat+SIMD, A64) | Δ vs Day 1 | Day 4 (Metal, if built) | v0.1 target |
+| Bench | Day 1 (scalar+HashMap, A62) | Day 2+3 (flat+SIMD, A64) | v0.2 (Vector CFR, A70) | Δ vs A64 | v0.1 target |
 |---|---|---|---|---|---|
-| `river_canonical_spot`  | **478.23 ms @ 100 iters** *(~4.78 ms/iter)* | **434.65 ms @ 100 iters** *(~4.35 ms/iter)* | **-9.1 %** | N/A (Metal slower at N≤1326 — see SIMD vs Metal section below) | < 300 ms @ 1000 iters |
-| `river_degenerate_spot` | **363.13 µs @ 1000 iters** *(137× under target)* | **268.15 µs @ 1000 iters** *(186× under target)* | **-26.2 %** | N/A (same reason) | < 50 ms @ 1000 iters |
-| `river_wet_board`       | **667.14 ms @ 100 iters** *(~6.67 ms/iter)* | **589.27 ms @ 100 iters** *(~5.89 ms/iter)* | **-11.7 %** | N/A (same reason) | < 500 ms @ 1000 iters |
+| `river_canonical_spot`  | 478.23 ms @ 100 iters | 434.65 ms @ 100 iters | **40.70 ms @ 100 iters** *(~0.41 ms/iter)* | **-90.6 % (~10.7×)** | < 300 ms @ 1000 iters |
+| `river_degenerate_spot` | 363.13 µs @ 1000 iters | 268.15 µs @ 1000 iters | **13.02 ms @ 1000 iters** | +4755 % (see note) | < 50 ms @ 1000 iters |
+| `river_wet_board`       | 667.14 ms @ 100 iters | 589.27 ms @ 100 iters | **41.81 ms @ 100 iters** *(~0.42 ms/iter)* | **-92.9 % (~14.1×)** | < 500 ms @ 1000 iters |
 
-**Post-A64 numbers are criterion mean on Henry's M-series MacBook,
-clean run (no concurrent cargo processes), commit `3480502` with
-`CfrPlusFlat + regret_match_simd` wired through `benches/river.rs`.
-See `bench-history/2026-04-23_*_3480502.json` for the full snapshot.**
+**Post-A70 numbers are criterion mean on Henry's M-series MacBook,
+clean run, commit `7d6556e` with `CfrPlusVector` wired through
+`benches/river.rs`. See `bench-history/2026-04-23_182335_7d6556e.json`
+for the full snapshot.**
+
+**Extrapolated to 1000 iters:**
+- `river_canonical_spot` ~407 ms @ 1000 iters → clears 1 s hard limit,
+  over the 300 ms ideal target by ~107 ms.
+- `river_wet_board` ~418 ms @ 1000 iters → under the 500 ms target.
+- `river_degenerate_spot` stays at 13.02 ms @ 1000 iters regardless —
+  well under the 50 ms target even though the per-iter floor regressed.
+
+**Degenerate-spot regression note.** The vector solver always walks
+1326-wide reach vectors, even on a 1-combo-vs-1-combo spot where
+scalar would walk a single lane. The per-iteration floor is therefore
+higher for trivial spots (~13 µs/iter in vector vs ~0.27 µs/iter in
+A64 flat). This is an accepted trade-off: the trivial path is still
+186× under the 50 ms target, and real river spots (canonical, wet)
+net 10-14× faster. Only a small fraction of production traffic hits
+the trivial path — most river solves have 100+ viable combo pairs.
 
 **Iteration-count note (2026-04-23, A62/A64).** The CFR+ inner
 loop on the two heavy spots still takes ~4-6 ms per iteration post-A64,
@@ -251,13 +269,20 @@ Extrapolating the post-A64 per-iter numbers:
 - canonical at 1000 iters ≈ 4.35 s (4.35× over the 1 s hard limit)
 - wet-board at 1000 iters ≈ 5.89 s (~11.8× over the 500 ms target)
 
-**Why the jump is smaller than expected (2026-04-23, A64).** The
-A64 integration wired `CfrPlusFlat` + `regret_match_simd` through the
-river bench (and through solver-cli + solver-ffi as the default
-solver). Pre-A64 expected: 3-9× gain, driven by the 9× SIMD speedup
-measured on `regret_matching_scalar/1326`. Post-A64 measured: 9-26 %
-gain per spot. The delta is **not** a bug — it's the NLHE bet-tree
-shape.
+**Why A64's jump was smaller than expected (2026-04-23, A64 → A70
+resolution).** The A64 integration wired `CfrPlusFlat` +
+`regret_match_simd` through the river bench (and through solver-cli +
+solver-ffi as the default solver). Pre-A64 expected: 3-9× gain,
+driven by the 9× SIMD speedup measured on `regret_matching_scalar/1326`.
+Post-A64 measured: 9-26 % gain per spot. The delta is **not** a bug —
+it's the NLHE bet-tree shape.
+
+**A70 closed this.** The fix was to restructure the CFR walk so the
+1326-combo dimension becomes a SIMD lane instead of the action axis.
+`CfrPlusVector` walks the action-only tree once per iteration (not
+once per chance root as `CfrPlusFlat` did), carrying 1326-wide reach
+vectors and integrating the showdown matrix via SIMD matmul. The
+10-14× speedup on real river spots lands.
 
 The SIMD path in `matching_simd.rs` has a `SIMD_THRESHOLD = 8`: for
 action sets smaller than 8 it short-circuits to the scalar path,

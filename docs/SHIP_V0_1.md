@@ -49,15 +49,18 @@ All numbers measured on an M-series Mac via criterion. Targets are
 from `docs/REQUIREMENTS.md` and `docs/BENCHMARKS.md`. Hard limits =
 we do not ship below them; targets = what we aspire to.
 
-- [ ] `river_canonical_spot` — 1000 iters, **< 300 ms target**,
+- [~] `river_canonical_spot` — 1000 iters, **< 300 ms target**,
       **< 1 s hard limit**. Paste criterion output on the tag PR.
-      (Bench still runs the Kuhn placeholder — `benches/river.rs` is env-gated and
-      NLHE river subgame isn't wired into it. Baseline table in `docs/BENCHMARKS.md`
-      reads "not yet wired" for all three river benches.)
-- [ ] `river_degenerate_spot` — all-in preflop → river, **< 50 ms**.
-      (Not wired — same as above.)
-- [ ] `river_wet_board` — JhTh9c-8h-7h texture, **< 500 ms**.
-      (Not wired — same as above.)
+      (A70 `7d6556e` landed Vector CFR as the default solver: 40.70 ms
+      @ 100 iters → ~407 ms @ 1000 iters extrapolated. **Hard limit
+      cleared**; **target missed by ~107 ms**. Remaining gap would need
+      rayon parallelism across the walk (v0.2 stretch). See
+      `bench-history/2026-04-23_182335_7d6556e.json` + `docs/BENCHMARKS.md`.)
+- [x] `river_degenerate_spot` — all-in preflop → river, **< 50 ms**.
+      (A70 `7d6556e`: 13.02 ms @ 1000 iters — 3.84× under target.)
+- [x] `river_wet_board` — JhTh9c-8h-7h texture, **< 500 ms**.
+      (A70 `7d6556e`: 41.81 ms @ 100 iters → ~418 ms @ 1000 iters
+      extrapolated — under target.)
 - [x] `regret_matching_inner` — 1326-wide SIMD inner loop, **< 1 µs**
       per call. (**192.7 ns** at N=1326 per `docs/BENCHMARKS.md` SIMD vs scalar
       table; A51 `7e587c7`. 9.2× faster than scalar, 580× faster than Metal.)

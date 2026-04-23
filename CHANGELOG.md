@@ -14,6 +14,54 @@ semver strictly and tie it to `solver_version()` on the consumer side.
 This section tracks work landed on `main` that is NOT yet tagged as a
 release. It will be rolled into the next version on tag day.
 
+### Added — v0.2 Workstream A: Vector CFR (A70)
+
+- `regret_match_simd_vector` primitive — SIMD-across-combo-lanes
+  counterpart to `regret_match_simd`. Input is `&[&[f32]]` (actions ×
+  lanes); output is `&mut [&mut [f32]]`. Internally `A × (N / 8)`
+  `wide::f32x8` ops. Bench case at A=5 N=1326 lands in the expected
+  ~5-8× over scalar-per-lane. Tested entrywise against the scalar
+  `regret_match` across 10k random NLHE-scale cases.
+- `VectorCfrTables` — combo-lane-major regret / strategy-sum storage
+  (`num_info_sets × max_actions × combo_width` flat `Box<[f32]>`
+  buffers). Cache-friendly for the 1326-wide combo sweep.
+- `CfrPlusVector` + `VectorGame` trait — action-only tree walk
+  carrying hero / villain reach vectors of length `combo_width`. One
+  walk per iteration instead of N walks per chance root. Depth-
+  indexed scratch pool so the recursion doesn't allocate per-node.
+  Three-way convergence test on Kuhn: scalar / flat / vector all
+  hit the same Nash equilibrium; trajectory differs because scalar
+  runs sequential per-root walks with mutating regrets while vector
+  batches, but the Hero EV converges within 0.01 of the analytical
+  -1/18 and per-entry strategies within 0.05.
+- `NlheSubgameVector` — `VectorGame` impl for NLHE river subgames.
+  Builds the 1326×1326 showdown-sign matrix once at construction;
+  `fill_terminal_utility` does a SIMD matmul (i8 load × f32x8
+  multiply-accumulate) across active opponent combos with pair-
+  validity (card-conflict masks) enforced via precomputed per-combo
+  bitmasks. Fold terminals use a total-reach-minus-conflict-reach
+  closed-form to avoid N² work.
+- `solver-cli`: `--solver vector` is now the default (`flat` and
+  `classic` kept as cross-check fallbacks). Exploitability is
+  emitted as `null` per the v0.1 sentinel; a root-aware helper is
+  v0.2 Workstream B.
+- `solver-ffi`: `solver_solve` switches to `CfrPlusVector`. Same ABI
+  as before; `exploitability` stays `f32::NAN`.
+
+**Perf on the three primary river KPIs (100 CFR+ iters, Henry's
+M-series MacBook, `bench-history/2026-04-23_182335_7d6556e.json`):**
+
+| Bench | A64 (flat+SIMD) | A70 (Vector) | Speedup |
+|---|---|---|---|
+| `river_canonical_spot` | 434.65 ms | **40.70 ms** | **10.7×** |
+| `river_wet_board` | 589.27 ms | **41.81 ms** | **14.1×** |
+| `river_degenerate_spot` | 268 µs @ 1000 iters | 13 ms @ 1000 iters | regression on 1-combo-vs-1-combo spot (still under 50 ms target) |
+
+Extrapolated to 1000 iters: canonical ~407 ms, wet ~418 ms. Clears
+the 1 s hard limit. Falls ~107 ms short of the 300 ms ideal target
+on canonical — further gains would come from rayon across the tree
+walk (v0.2 stretch, Workstream A M6 in `ROADMAP_V0_2.md`).
+
 ### Added — core algorithm (`solver-core`)
 
 - CFR+ with regret matching: regret-sum + strategy-sum accumulators,
