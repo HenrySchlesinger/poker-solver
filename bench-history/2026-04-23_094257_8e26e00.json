@@ -1,0 +1,21 @@
+{
+  "commit": "8e26e000f820cf90b742111944e6e56d0fbaefc1",
+  "commit_short": "8e26e00",
+  "date_utc": "2026-04-23T09:42:57Z",
+  "hardware": "M-series Mac (Henry's laptop)",
+  "agent": "A55",
+  "rust_toolchain": "1.85.0-aarch64-apple-darwin",
+  "profile": "bench (optimized + debuginfo)",
+  "notes": "Concurrent `cargo test -p solver-cli --test e2e_integration` (pid 23775) was running during the cfr_kuhn portion of this run; those numbers may reflect up to ~20-30% core contention. regret_matching numbers captured first and are believed clean (criterion 'Change within noise threshold' at N=169 and N=1326). river_placeholder bench intentionally skipped (Kuhn-wrapped, redundant with cfr_kuhn).",
+  "benches": {
+    "regret_matching_scalar/3":    {"mean_ns": 2.2439,   "unit": "ns", "ci_low_ns": 2.2319,   "ci_high_ns": 2.2565},
+    "regret_matching_scalar/8":    {"mean_ns": 4.8647,   "unit": "ns", "ci_low_ns": 4.8304,   "ci_high_ns": 4.9018},
+    "regret_matching_scalar/26":   {"mean_ns": 16.082,   "unit": "ns", "ci_low_ns": 16.045,   "ci_high_ns": 16.133},
+    "regret_matching_scalar/169":  {"mean_ns": 154.70,   "unit": "ns", "ci_low_ns": 154.42,   "ci_high_ns": 155.03},
+    "regret_matching_scalar/1326": {"mean_ns": 1736.5,   "unit": "ns", "ci_low_ns": 1734.9,   "ci_high_ns": 1738.3, "mean_display": "1.7365 µs"},
+    "cfr_plus_kuhn/10":   {"mean_ns": 66275.0,   "unit": "ns", "ci_low_ns": 65786.0,   "ci_high_ns": 66744.0, "mean_display": "66.275 µs"},
+    "cfr_plus_kuhn/100":  {"mean_ns": 634310.0,  "unit": "ns", "ci_low_ns": 623980.0,  "ci_high_ns": 645740.0, "mean_display": "634.31 µs"},
+    "cfr_plus_kuhn/1000": {"mean_ns": 5907300.0, "unit": "ns", "ci_low_ns": 5888700.0, "ci_high_ns": 5926000.0, "mean_display": "5.9073 ms"},
+    "cfr_plus_kuhn_single_iteration": {"mean_ns": 6960.4, "unit": "ns", "ci_low_ns": 6941.2, "ci_high_ns": 6979.8, "mean_display": "6.9604 µs"}
+  }
+}

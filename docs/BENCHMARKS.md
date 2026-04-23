@@ -189,6 +189,12 @@ MacBook (Apple Silicon, `cargo 1.95.0 stable`, release profile with
 Day-1 (scalar) numbers are filled in and marked `baseline`. Day-2, Day-3
 and Day-4 columns get filled in as those optimizations land.
 
+The "Day 1 (scalar, baseline)" numbers below are the most recent committed
+baseline run. The append-only source of truth lives in
+[`bench-history/`](../bench-history/) — one dated JSON per run. The current
+snapshot is `bench-history/2026-04-23_094257_8e26e00.json` (commit
+`8e26e00`, agent A55).
+
 ### Primary KPI (river)
 
 | Bench | Day 1 (scalar, baseline) | Day 2 (flat tables) | Day 3 (SIMD+rayon) | Day 4 (Metal, if built) | v0.1 target |
@@ -197,23 +203,25 @@ and Day-4 columns get filled in as those optimizations land.
 | `river_degenerate_spot` | not yet wired | TBD | TBD | N/A (same reason) | < 50 ms |
 | `river_wet_board`       | not yet wired | TBD | TBD | N/A (same reason) | < 500 ms |
 
-Placeholder we measure instead until NLHE lands:
+Placeholder we measure instead until NLHE lands (Kuhn-wrapped — identical
+work to `cfr_plus_kuhn/1000`, so we don't run it twice; see that row
+below):
 
 | Bench | Day 1 (scalar, baseline) | Notes |
 |---|---|---|
-| `river_placeholder_kuhn_1000_iters` | **5.39 ms** | Kuhn Poker, 1000 CFR+ iterations. Proxy for wiring; NOT a proxy for NLHE river cost. |
+| `river_placeholder_kuhn_1000_iters` | see `cfr_plus_kuhn/1000` | Kuhn Poker, 1000 CFR+ iterations. Proxy for wiring; NOT a proxy for NLHE river cost. |
 
 ### Inner-loop microbench (`regret_matching` — scalar only, Day 1 owns this file)
 
 | Bench | Day 1 (scalar, baseline) | Target |
 |---|---|---|
-| `regret_matching_scalar/3`    | **2.26 ns**  | — |
-| `regret_matching_scalar/8`    | **3.29 ns**  | — |
-| `regret_matching_scalar/26`   | **12.72 ns** | — |
-| `regret_matching_scalar/169`  | **141.8 ns** | — |
-| `regret_matching_scalar/1326` | **1.67 µs**  | < 1 µs post-SIMD (A20) |
+| `regret_matching_scalar/3`    | **2.24 ns**  | — |
+| `regret_matching_scalar/8`    | **4.86 ns**  | — |
+| `regret_matching_scalar/26`   | **16.08 ns** | — |
+| `regret_matching_scalar/169`  | **154.70 ns** | — |
+| `regret_matching_scalar/1326` | **1.74 µs**  | < 1 µs post-SIMD (A20) |
 
-N=1326 is ~1.67 µs scalar — close to the SIMD target of < 1 µs, which is
+N=1326 is ~1.74 µs scalar — close to the SIMD target of < 1 µs, which is
 why A20's SIMD path is a Day-3 priority rather than Day-1.
 
 ### SIMD vs scalar vs Metal (`simd_matching`, `metal_matching`)
@@ -271,14 +279,24 @@ cargo test --release -p solver-core --features metal --test metal_equivalence
 
 | Bench | Day 1 (scalar, baseline) | Iterations/sec |
 |---|---|---|
-| `cfr_plus_kuhn/10`                | **91.6 µs**  | ~109k iters/s |
-| `cfr_plus_kuhn/100`               | **528.7 µs** | ~189k iters/s |
-| `cfr_plus_kuhn/1000`              | **5.10 ms**  | ~196k iters/s |
-| `cfr_plus_kuhn_single_iteration`  | **6.01 µs**  | — |
+| `cfr_plus_kuhn/10`                | **66.28 µs**  | ~151k iters/s |
+| `cfr_plus_kuhn/100`               | **634.31 µs** | ~158k iters/s |
+| `cfr_plus_kuhn/1000`              | **5.91 ms**   | ~169k iters/s |
+| `cfr_plus_kuhn_single_iteration`  | **6.96 µs**   | — |
 
 Linear scaling (10 → 100 → 1000 iters produces ~10× → ~100× wall time,
 with the fixed "fresh solver + avg-strategy computation" overhead
 visible at the 10-iter size). Good signal the tree walk is steady-state.
+
+Note on the 2026-04-23 snapshot (commit `8e26e00`, agent A55): these
+numbers were captured while an unrelated `cargo test -p solver-cli
+--test e2e_integration` invocation was running on the same box, so the
+Kuhn numbers may carry ~10–20 % core-contention overhead. The
+`regret_matching` numbers above were captured first and are clean
+(criterion "Change within noise threshold" at N=169 and N=1326). A
+cleaner rerun may land a follow-up snapshot in `bench-history/` with
+slightly better Kuhn numbers — keep the append-only history, don't
+overwrite.
 
 ### Future benches (not yet implemented)
 
