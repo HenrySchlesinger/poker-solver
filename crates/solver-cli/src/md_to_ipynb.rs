@@ -327,7 +327,6 @@ pub fn parse_markdown(md: &str) -> Result<Vec<ParsedCell>> {
                 md_buf.push_str(raw_line);
             }
         }
-
     }
 
     // EOF handling.
