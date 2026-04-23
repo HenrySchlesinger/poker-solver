@@ -125,6 +125,157 @@ fn solve_with_valid_inputs_returns_a_status() {
     solver_ffi::solver_free(handle);
 }
 
+/// Build the canonical-spot `HandState`: royal-flush-on-board,
+/// both players holding AKs, pot=100, stack=500.
+///
+/// Matches `crates/solver-cli/tests/e2e_integration.rs::canonical_hand_state`
+/// so the FFI path here exercises the same bits the outer e2e script
+/// uses to assert CLI / FFI / Swift agreement.
+fn royal_on_board_hand_state() -> HandState {
+    // Card encoding: (rank << 2) | suit. ranks: 2=0..A=12, suits: c=0..s=3.
+    // See crates/solver-eval/src/card.rs. AhKhQhJhTh:
+    //   Ah = (12<<2)|2 = 50; Kh = 46; Qh = 42; Jh = 38; Th = 34.
+    let board: [u8; 5] = [50, 46, 42, 38, 34];
+
+    // AKs = { AcKc, AdKd, AhKh, AsKs }. Four combos, weight 1.0 each.
+    // We compute each combo's 1326-wide index with the same closed form
+    // `solver_eval::combo::combo_index` uses (triangular number index:
+    // for cards `lo < hi`, idx = sum_{k=0..lo}(51-k) + (hi - lo - 1)).
+    fn combo_index(a: u8, b: u8) -> usize {
+        let (lo, hi) = if a < b { (a, b) } else { (b, a) };
+        let mut idx = 0usize;
+        for k in 0..lo as usize {
+            idx += 51 - k;
+        }
+        idx += (hi as usize) - (lo as usize) - 1;
+        idx
+    }
+
+    let mut weights = [0.0f32; 1326];
+    for suit in 0u8..4 {
+        let a_card = (12u8 << 2) | suit; // A of `suit`
+        let k_card = (11u8 << 2) | suit; // K of `suit`
+        weights[combo_index(a_card, k_card)] = 1.0;
+    }
+
+    HandState {
+        board,
+        board_len: 5,
+        hero_range: weights,
+        villain_range: weights,
+        pot: 100,
+        effective_stack: 500,
+        to_act: 0,
+        bet_tree_version: 0,
+    }
+}
+
+#[test]
+fn solve_with_canonical_hand_state_returns_ok() {
+    // Happy path: real inputs, real dispatch → real SolveResult.
+    //
+    // On AhKhQhJhTh the board is already a royal flush, so every dealt
+    // AKs combo plays the board for a 50/50 tie. We assert:
+    //
+    // - `solver_solve` returns Ok (0).
+    // - `hero_equity` is ≈ 0.5.
+    // - `iterations` matches the FFI's hardcoded default (100 in v0.1).
+    // - `action_count` ≤ 8 and `action_freq[..action_count]` forms a
+    //   valid probability distribution.
+    //
+    // If this test fails with rc = InternalError, the dispatch
+    // regressed — the CFR worker probably panicked and the
+    // `catch_unwind` translated it. Inspect the worker path in
+    // `solver_ffi::run_cfr`.
+    let handle = solver_ffi::solver_new();
+    let input = royal_on_board_hand_state();
+    let mut out = zeroed_result();
+
+    let rc = solver_ffi::solver_solve(handle, &input as *const _, &mut out as *mut _);
+    solver_ffi::solver_free(handle);
+
+    assert_eq!(
+        rc,
+        SolverStatus::Ok as i32,
+        "expected Ok (0), got {rc}. \
+         If -2 (InternalError), the CFR worker panicked; check solver_core. \
+         If -1 (InvalidInput), the HandState failed validation in solver-ffi."
+    );
+
+    // hero_equity should be ~0.5 (royal on board = mandatory tie).
+    assert!(
+        out.hero_equity.is_finite(),
+        "hero_equity is non-finite: {}",
+        out.hero_equity
+    );
+    assert!(
+        (out.hero_equity - 0.5).abs() < 0.01,
+        "hero_equity = {} but expected ≈ 0.5 (royal-on-board tie)",
+        out.hero_equity
+    );
+
+    // Iterations should match the FFI's hardcoded default. If we bump
+    // DEFAULT_ITERATIONS, update this assertion to match.
+    assert_eq!(
+        out.iterations, 100,
+        "FFI v0.1 hardcodes DEFAULT_ITERATIONS=100; got {}",
+        out.iterations
+    );
+
+    // Action distribution sanity.
+    assert!(
+        out.action_count <= 8,
+        "action_count {} > 8, overflows action_freq buffer",
+        out.action_count
+    );
+    if out.action_count > 0 {
+        let n = out.action_count as usize;
+        let sum: f32 = out.action_freq[..n].iter().sum();
+        assert!(
+            (sum - 1.0).abs() < 1e-3,
+            "action_freq does not sum to 1: sum={sum}, freqs={:?}",
+            &out.action_freq[..n]
+        );
+        for (i, &p) in out.action_freq[..n].iter().enumerate() {
+            assert!(
+                (0.0..=1.0).contains(&p),
+                "action_freq[{i}] = {p} out of [0,1]"
+            );
+        }
+    }
+}
+
+#[test]
+fn solve_with_non_river_board_returns_invalid_input() {
+    // v0.1 is river-only. A flop board (board_len=3) must reject cleanly
+    // with InvalidInput, not crash into NlheSubgame::new's `board.len == 5`
+    // assertion.
+    let mut input = royal_on_board_hand_state();
+    input.board_len = 3;
+
+    let mut out = zeroed_result();
+    let rc = solver_ffi::solver_solve(std::ptr::null_mut(), &input as *const _, &mut out as *mut _);
+    assert_eq!(
+        rc,
+        SolverStatus::InvalidInput as i32,
+        "board_len=3 should be rejected with InvalidInput, got {rc}"
+    );
+}
+
+#[test]
+fn solve_with_unknown_bet_tree_version_returns_invalid_input() {
+    let mut input = royal_on_board_hand_state();
+    input.bet_tree_version = 7; // undefined in v0.1
+
+    let mut out = zeroed_result();
+    let rc = solver_ffi::solver_solve(std::ptr::null_mut(), &input as *const _, &mut out as *mut _);
+    assert_eq!(
+        rc,
+        SolverStatus::InvalidInput as i32,
+        "bet_tree_version=7 should be rejected with InvalidInput, got {rc}"
+    );
+}
+
 #[test]
 fn lookup_cached_returns_cache_miss_for_unknown_spot() {
     let input = dummy_hand_state();
