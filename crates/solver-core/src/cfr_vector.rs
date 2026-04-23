@@ -462,13 +462,16 @@ impl<G: VectorGame> CfrPlusVector<G> {
                     for c in tail_start..cw {
                         next_hero_take[c] = reach_hero[c] * p[c];
                     }
-                    next_villain_take.copy_from_slice(reach_villain);
+                    // A75 (rec #2): Villain's reach is unchanged on a Hero
+                    // action, so pass the caller's slice straight through
+                    // instead of copying it into a scratch buffer (saves
+                    // a 1326-f32 memmove per Hero action per node).
                     self.walk(
                         depth + 1,
                         &next,
                         update_player,
                         &next_hero_take,
-                        &next_villain_take,
+                        reach_villain,
                         &mut au_take[i],
                     );
                 }
@@ -490,12 +493,15 @@ impl<G: VectorGame> CfrPlusVector<G> {
                     for c in tail_start..cw {
                         next_villain_take[c] = reach_villain[c] * p[c];
                     }
-                    next_hero_take.copy_from_slice(reach_hero);
+                    // A75 (rec #2): Hero's reach is unchanged on a Villain
+                    // action, so pass the caller's slice straight through
+                    // instead of copying it into a scratch buffer (saves
+                    // a 1326-f32 memmove per Villain action per node).
                     self.walk(
                         depth + 1,
                         &next,
                         update_player,
-                        &next_hero_take,
+                        reach_hero,
                         &next_villain_take,
                         &mut au_take[i],
                     );
