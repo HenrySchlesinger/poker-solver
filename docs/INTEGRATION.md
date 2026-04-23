@@ -208,7 +208,10 @@ const char* solver_version(void);
 - `action_freq[8]` — f32 frequencies, sum to 1.0.
 - `action_ev[8]` — f32 EV per action, in big blinds.
 - `hero_equity` — f32.
-- `exploitability` — f32, lower = closer to Nash.
+- `exploitability` — f32. **v0.1: always `NaN`** — the current
+  walker reports a pot-proportional phantom-root artifact, not a
+  real Nash distance. See `docs/EXPLOITABILITY_TRIAGE.md`. Do not
+  surface this field in UI; the root-aware helper ships post-v0.1.
 - `iterations`, `compute_ms` — `u32`.
 
 See the `HandState` / `SolveResult` typedefs in `solver.h` for the

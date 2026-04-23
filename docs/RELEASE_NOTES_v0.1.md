@@ -39,6 +39,17 @@ broadcasts without a cloud round-trip.
 - **ICM tournament math** — cash-game EV only.
 - **Exploit / node-locking** — pure GTO.
 
+## Known gaps
+
+- **`exploitability` is a sentinel, not a number.** The CLI JSON
+  emits `"exploitability": null` and the FFI `SolveResult.exploitability`
+  field is `f32::NAN` on every successful solve. The current
+  `CfrPlus::exploitability()` walker reports a phantom-root value
+  that scales with pot size rather than a real Nash distance (see
+  `docs/EXPLOITABILITY_TRIAGE.md`). A root-aware helper lands
+  post-v0.1; until then, do not read the field as a convergence
+  signal. Iteration count is the best available proxy.
+
 ## How to integrate
 
 Full guide: [INTEGRATION.md](INTEGRATION.md). Two paths:
