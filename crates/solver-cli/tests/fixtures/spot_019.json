@@ -1,0 +1,22 @@
+{
+  "id": "spot_019",
+  "name": "Deep-stack 3-bet pot AhKd2c, ~500bb eff",
+  "description": "Extreme deep stack scenario: 500bb effective (eff=4910 chips, pot=180 = 18bb after 3-bet). Very high SPR (~27) means there are MANY more streets of action possible than a normal 100bb 3-bet pot. Tests the solver's handling of deep-stack dynamics: bet sizing should slope up, overbets should appear, more check-back and float lines are viable. Same board as spot_012 but the strategy must be materially different. Hero = BB, villain = BTN.",
+  "street": "flop",
+  "input": {
+    "board": "AhKd2c",
+    "hero_range": "TT, JJ, QQ, KK, AA, AJs, AQs, AKs, AQo, AKo, KQs, A5s, A4s, A3s, A2s",
+    "villain_range": "QQ, KK, AA, AKs, AKo, A5s, A4s, KQs",
+    "pot": 180,
+    "effective_stack": 4910,
+    "to_act": "hero",
+    "bet_tree": "default_v0_1"
+  },
+  "iterations": 1000,
+  "tolerances": {
+    "action_freq_abs": 0.05,
+    "ev_bb_abs": 0.10
+  },
+  "expected_reference": "texassolver",
+  "expected_notes": "Populated by differential run. The deep stack should surface overbet lines, higher bluff frequencies, and more balanced check-back ranges compared to spot_012. If our output closely matches spot_012, we have an SPR-handling bug."
+}

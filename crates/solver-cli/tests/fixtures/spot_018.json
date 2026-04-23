@@ -1,0 +1,22 @@
+{
+  "id": "spot_018",
+  "name": "River KKK-2-4, quads possible, boat-heavy",
+  "description": "Trips on the flop + two low cards on turn/river. Every hand with a K makes quads (AKs and AKo). Pocket pairs in the hole make full houses: 22 is Ks-full-of-2s, 44 is Ks-full-of-4s, QQ is Ks-full-of-Qs, AA is Ks-full-of-As. Non-pair unpaired hands (AQ, AJ, AT) are trips-on-board playing the kicker — still beaten by any full house. Tests the solver's board-derived-made-hand reasoning. Ranges use rank-based notation.",
+  "street": "river",
+  "input": {
+    "board": "KhKdKc2s4h",
+    "hero_range": "QQ, AA, AKs, AKo, AQs, AQo, AJs, AJo, ATs, ATo, 22, 44",
+    "villain_range": "QQ, AA, AKs, AKo, AQs, AQo, AJs, AJo, ATs, ATo, 22, 44",
+    "pot": 100,
+    "effective_stack": 950,
+    "to_act": "hero",
+    "bet_tree": "default_v0_1"
+  },
+  "iterations": 1000,
+  "tolerances": {
+    "action_freq_abs": 0.05,
+    "ev_bb_abs": 0.10
+  },
+  "expected_reference": "texassolver",
+  "expected_notes": "Populated by differential run. Quads (AKs/AKo) > all full houses (AA, QQ, 44, 22) > trips+kicker (AQ, AJ, AT). Symmetric ranges isolate the made-hand-tier handling; if hero and villain converge to materially different strategies it's likely a bug."
+}

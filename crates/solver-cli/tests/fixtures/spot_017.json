@@ -1,0 +1,22 @@
+{
+  "id": "spot_017",
+  "name": "River straight on board 98765",
+  "description": "The board itself is a 9-high straight (9-8-7-6-5). Any hand with a Ten or higher makes a higher straight; everything else chops. Tests the extreme case of 'board plays' river scenarios. Ranges use rank-based notation only — the parser doesn't accept specific-combo notation. The ranges are kept narrow (premium broadway + a few connectors) to make the chop / higher-straight split easy to analyze.",
+  "street": "river",
+  "input": {
+    "board": "9h8h7c6d5s",
+    "hero_range": "TT, JJ, QQ, KK, AA, AQs, AKs, KQs, AJs, ATs, QJs, QTs, JTs, AJo, AQo, AKo, KQo, KJo, KTo, QJo, QTo, JTo",
+    "villain_range": "TT, JJ, QQ, KK, AA, AQs, AKs, KQs, AJs, ATs, QJs, QTs, JTs, AJo, AQo, AKo, KQo, KJo, KTo, QJo, QTo, JTo",
+    "pot": 100,
+    "effective_stack": 950,
+    "to_act": "hero",
+    "bet_tree": "default_v0_1"
+  },
+  "iterations": 1000,
+  "tolerances": {
+    "action_freq_abs": 0.05,
+    "ev_bb_abs": 0.10
+  },
+  "expected_reference": "texassolver",
+  "expected_notes": "Populated by differential run. Degenerate river: hands with a Ten or higher make a higher straight; other hands chop with the board. Symmetric ranges (both sides have the same hand types) make this a good test of non-random-tiebreak behavior in the CFR solver — if hero and villain converge to materially different strategies here it's likely a bug."
+}

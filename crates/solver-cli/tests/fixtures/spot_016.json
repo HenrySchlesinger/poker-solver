@@ -1,0 +1,22 @@
+{
+  "id": "spot_016",
+  "name": "River runout JhTh9c-8h-7c wet",
+  "description": "Wet runout: flop JhTh9c, turn 8h, river 7c. Board shows a 5-card straight (7-8-9-T-J). Many hands make straights (any 8 or higher), flushes (any hearts), or nearly-nut hands. Tests solver behavior when the board itself has a strong hand and hero/villain play for kickers and blockers. Ranges use rank-based notation only (the range parser doesn't accept specific-card combos like AhJh). Hero = BB postflop caller, villain = BTN SRP.",
+  "street": "river",
+  "input": {
+    "board": "JhTh9c8h7c",
+    "hero_range": "JJ, TT, 99, 88, AJs, ATs, KJs, KTs, QJs, QTs, JTs, AQs, AKs, KQs, AJo, ATo, KJo, KTo, QJo, QTo, JTo",
+    "villain_range": "QQ, KK, AA, AQs, AKs, KQs, AJs, ATs, KJs, KTs, QJs, QTs, JTs, 88, AJo, AQo, AKo, KQo, KJo",
+    "pot": 100,
+    "effective_stack": 950,
+    "to_act": "hero",
+    "bet_tree": "default_v0_1"
+  },
+  "iterations": 1000,
+  "tolerances": {
+    "action_freq_abs": 0.05,
+    "ev_bb_abs": 0.10
+  },
+  "expected_reference": "texassolver",
+  "expected_notes": "Populated by differential run. The board is a 5-card straight 7-8-9-T-J, so any A/K/Q makes a higher straight; flush with two hearts; made trips / two-pair with 88 and JJ/TT/99. Expect high value-bet frequency from villain's QQ/AA (which have been navigating to showdown) and heavy polarization."
+}

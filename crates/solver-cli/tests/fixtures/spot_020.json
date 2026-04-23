@@ -1,0 +1,22 @@
+{
+  "id": "spot_020",
+  "name": "Short-stack SPR 0.5 jam-or-fold river",
+  "description": "River spot with remaining stack HALF the pot (pot=200, eff=100 = SPR 0.5). Only two interesting actions remain: check-check showdown, or jam-call / jam-fold. Any 'bet' in this spot is essentially an all-in in the bet tree (since 50% pot is half the stack, and a full-pot bet exceeds the stack and snaps to all-in). Tests the solver's handling of degenerate bet trees (one meaningful bet size = all-in). Hero = BB, villain = BTN.",
+  "street": "river",
+  "input": {
+    "board": "AhKd2cQc4d",
+    "hero_range": "AA, KK, QQ, JJ, AKo, AQo, KQs, AJs",
+    "villain_range": "77, 88, 99, TT, JJ, AQs, AJs, KQs, QJs",
+    "pot": 200,
+    "effective_stack": 100,
+    "to_act": "hero",
+    "bet_tree": "default_v0_1"
+  },
+  "iterations": 1000,
+  "tolerances": {
+    "action_freq_abs": 0.05,
+    "ev_bb_abs": 0.10
+  },
+  "expected_reference": "texassolver",
+  "expected_notes": "Populated by differential run. SPR 0.5 collapses the bet tree — any bet snaps to all-in in practice. Expected: high check-back frequency with mediocre hands because jamming is committed, and polarized jam ranges on the value side."
+}
