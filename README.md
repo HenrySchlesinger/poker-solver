@@ -30,6 +30,7 @@ Longer version: [docs/WHY.md](docs/WHY.md).
 ## Quick start
 
 ```bash
+./.githooks/install.sh               # install pre-commit hook (once per clone)
 cargo build --release --workspace
 cargo test --workspace
 cargo bench -p solver-core           # river inner-loop benchmarks

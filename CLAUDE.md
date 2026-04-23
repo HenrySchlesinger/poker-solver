@@ -53,6 +53,19 @@ Before doing anything substantive in this repo, read:
   [docs/BENCHMARKS.md](docs/BENCHMARKS.md). Don't regress the river inner
   loop without a really good reason.
 
+## Pre-commit hook
+
+- Install once per clone: `./.githooks/install.sh`. This symlinks
+  `.git/hooks/pre-commit` to `.githooks/pre-commit`, so future edits to
+  the hook take effect immediately without reinstalling.
+- The hook runs (in order) `cargo fmt --all -- --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings`, and
+  `cargo test --workspace --lib --no-run`. It does NOT run the tests
+  themselves — that's CI's job. Warm-cache target: ~1s, well under 30s.
+- If a commit is rejected, the hook prints a clear fix hint (e.g. `Fix
+  with: cargo fmt --all`). Bypass with `git commit --no-verify` only for
+  snapshotting known-broken WIP; CI will still reject on push.
+
 ## Rust wherever possible
 
 - **This is a Rust-first project.** Prefer Rust binaries over shell scripts,
