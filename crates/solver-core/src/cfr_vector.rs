@@ -505,12 +505,42 @@ impl<G: VectorGame> CfrPlusVector<G> {
             // node_util aggregation: see module docs.
             let au = &au_take[i];
             if current == update_player {
-                for (c, slot) in node_util_take.iter_mut().enumerate() {
-                    *slot += p[c] * au[c];
+                // SIMD: node_util_take[c] += p[c] * au[c]
+                // A73 profile: line 480 was 13.7 % of walk self-time.
+                let chunks = cw / 8;
+                let tail_start = chunks * 8;
+                for ch in 0..chunks {
+                    let base = ch * 8;
+                    let nu_slice: [f32; 8] = node_util_take[base..base + 8].try_into().unwrap();
+                    let p_slice: [f32; 8] = p[base..base + 8].try_into().unwrap();
+                    let au_slice: [f32; 8] = au[base..base + 8].try_into().unwrap();
+                    let nu_v = f32x8::from(nu_slice);
+                    let p_v = f32x8::from(p_slice);
+                    let au_v = f32x8::from(au_slice);
+                    let result = nu_v + p_v * au_v;
+                    let arr: [f32; 8] = result.into();
+                    node_util_take[base..base + 8].copy_from_slice(&arr);
+                }
+                for c in tail_start..cw {
+                    node_util_take[c] += p[c] * au[c];
                 }
             } else {
-                for (c, slot) in node_util_take.iter_mut().enumerate() {
-                    *slot += au[c];
+                // SIMD: node_util_take[c] += au[c]
+                // A73 profile: line 484 was 9.2 % of walk self-time.
+                let chunks = cw / 8;
+                let tail_start = chunks * 8;
+                for ch in 0..chunks {
+                    let base = ch * 8;
+                    let nu_slice: [f32; 8] = node_util_take[base..base + 8].try_into().unwrap();
+                    let au_slice: [f32; 8] = au[base..base + 8].try_into().unwrap();
+                    let nu_v = f32x8::from(nu_slice);
+                    let au_v = f32x8::from(au_slice);
+                    let result = nu_v + au_v;
+                    let arr: [f32; 8] = result.into();
+                    node_util_take[base..base + 8].copy_from_slice(&arr);
+                }
+                for c in tail_start..cw {
+                    node_util_take[c] += au[c];
                 }
             }
         }
