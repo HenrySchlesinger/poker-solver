@@ -141,7 +141,7 @@ tar xzf "solver-$VERSION-macos-universal.tar.gz"
 ```
 
 Then follow the Xcode drop-in steps in
-[docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md#manual-consumer-integration-v01-path).
+[docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md#manual-a-drop-in-for-xcode-without-spm-setups).
 
 ## License
 
