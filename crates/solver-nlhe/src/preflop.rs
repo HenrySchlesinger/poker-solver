@@ -204,8 +204,8 @@ impl PreflopRanges {
     ///   * [`MAGIC`]      → uncompressed body (original v0.1 layout).
     ///   * [`MAGIC_ZSTD`] → zstd-compressed body (added by A33).
     ///
-    /// In either case the 16-byte file header (magic + version + reserved
-    /// + num_entries) is validated first, so a truncated or wrong-version
+    /// In either case the 16-byte file header (magic, version, reserved,
+    /// num_entries) is validated first, so a truncated or wrong-version
     /// file is rejected before we spend a decompression.
     fn load_from_bytes(bytes: &[u8]) -> Result<Self> {
         if bytes.len() < HEADER_BYTES {

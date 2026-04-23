@@ -603,7 +603,7 @@ mod tests {
 
     #[test]
     fn lookup_default_bet_tree_version_is_1() {
-        let entries = vec![PackEntry {
+        let entries = [PackEntry {
             canonical_board: [1, 2, 3],
             spr_bucket: 8,
             pot_type: PotType::Srp,

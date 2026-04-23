@@ -192,15 +192,15 @@ fn br_subtree_value(
         let a_idx = match br_policy.get(&info) {
             Some(&i) => i,
             None => {
-                // Lookahead argmax if policy unresolved.
+                // Lookahead argmax if policy unresolved. We only need the
+                // max value itself here (not the index), so the argmax
+                // collapses to `fold(max)`.
                 let mut best = f32::NEG_INFINITY;
-                let mut best_i = 0usize;
-                for (i, a) in actions.iter().enumerate() {
+                for a in actions.iter() {
                     let next = game.apply(state, a);
                     let v = br_subtree_value(game, strategy, br_player, &next, br_policy);
                     if v > best {
                         best = v;
-                        best_i = i;
                     }
                 }
                 return if best.is_finite() { best } else { 0.0 };

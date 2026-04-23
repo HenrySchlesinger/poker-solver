@@ -621,12 +621,12 @@ fn build_showdown_matrix(board: &Board) -> Box<ShowdownMatrix> {
             Some(r) => r,
             None => continue, // row stays all zeros
         };
-        for j in 0..NUM_COMBOS {
+        for (j, rj_opt) in ranks.iter().enumerate().take(NUM_COMBOS) {
             if i == j {
                 // Same combo: impossible deal (shared cards).
                 continue;
             }
-            let rj = match ranks[j] {
+            let rj = match *rj_opt {
                 Some(r) => r,
                 None => continue,
             };
