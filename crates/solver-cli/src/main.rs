@@ -5,20 +5,27 @@
 //!   validate           — diff our solver against TexasSolver on canonical spots
 //!   precompute         — solve a grid of spots and write cache files
 //!   translate-fixture  — convert a fixture JSON into a TexasSolver config
+//!   demo               — render a polished 30-second demo (A30)
 //!
 //! This binary is NEVER shipped to Poker Panel users — strictly a
 //! development tool. Runs on the Mac for interactive work, runs on
-//! Colab for overnight precompute jobs.
+//! Colab for overnight precompute jobs. `demo` is the one "showable"
+//! surface — what Henry pastes into a chat when a streamer asks
+//! "cool, but what does this actually do?"
 //!
-//! See `src/solve_cmd.rs` for the `solve` implementation and
-//! `src/translate.rs` for the fixture-translator. `validate` and
-//! `precompute` are scaffolded for later days of the sprint.
+//! See `src/solve_cmd.rs` for the `solve` implementation,
+//! `src/translate.rs` for the fixture-translator, and `src/demo.rs`
+//! for the 30-second demo renderer. `validate` and `precompute` are
+//! scaffolded for later days of the sprint.
 
 use clap::{Parser, Subcommand};
 
+mod demo;
+mod demo_spots;
 mod solve_cmd;
 mod translate;
 
+use demo::{run_demo, DemoArgs};
 use solve_cmd::{run_solve, SolveArgs};
 use translate::{run_translate, TargetFormat, TranslateArgs};
 
