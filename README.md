@@ -43,7 +43,9 @@ cargo run -p solver-cli -- solve \
 
 Before tagging a release, run `scripts/ship.sh` — it chains the fmt /
 clippy / test / bench-compile / ffi-artifact gates in one go. See
-[docs/SHIP_V0_1.md](docs/SHIP_V0_1.md) for the full ship checklist.
+[docs/SHIP_V0_1.md](docs/SHIP_V0_1.md) for the full ship checklist
+and [docs/MORNING_BRIEF.md](docs/MORNING_BRIEF.md) for the latest
+day's audit of what's ship-ready vs open.
 
 Run precompute on Colab (free T4 GPU) — see [colab/README.md](colab/README.md) for one-click notebooks.
 
