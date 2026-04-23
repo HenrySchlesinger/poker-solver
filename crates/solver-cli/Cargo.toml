@@ -29,3 +29,8 @@ colored = { workspace = true }
 # CLI binary itself doesn't need serde-derive on its hot path — only the
 # validate/fixture-loading paths do, and those live in test code today.
 serde = { workspace = true }
+# `solver-ffi` is used by `tests/e2e_integration.rs` to drive the FFI
+# surface in-process (cross-path agreement check). The test itself is
+# `#[ignore]`'d so plain `cargo test` doesn't run it — it requires the
+# release binary on disk and is orchestrated by `scripts/e2e.sh`.
+solver-ffi = { workspace = true }
