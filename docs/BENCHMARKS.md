@@ -219,8 +219,12 @@ snapshots:
   A72) — hand-rolled NEON showdown-matmul experiment (see "A72 NEON
   experiment" below). **No measurable gain** over `wide::f32x8` on
   aarch64; A70 remains the reference numbers.
+- `bench-history/2026-04-23_203607_1ee50b9.json` (commit `1ee50b9`, agent
+  A74) — **current river KPI snapshot**: walk-SIMD (6 elementwise loops
+  in `CfrPlusVector::walk` converted from scalar autovec to explicit
+  `wide::f32x8`).
 - `bench-history/2026-04-23_182335_7d6556e.json` (commit `7d6556e`, agent
-  A70) — **current river KPI snapshot**: Vector CFR landed as default.
+  A70) — pre-walk-SIMD Vector CFR baseline.
 - `bench-history/2026-04-23_110058_3480502.json` (commit `3480502`, agent
   A64) — post-flat+SIMD integration (pre-Vector).
 - `bench-history/2026-04-23_105049_d8505fa.json` (commit `d8505fa`, agent
@@ -230,32 +234,41 @@ snapshots:
 
 ### Primary KPI (river)
 
-| Bench | Day 1 (scalar+HashMap, A62) | Day 2+3 (flat+SIMD, A64) | v0.2 (Vector CFR, A70) | Δ vs A64 | v0.1 target |
-|---|---|---|---|---|---|
-| `river_canonical_spot`  | 478.23 ms @ 100 iters | 434.65 ms @ 100 iters | **40.70 ms @ 100 iters** *(~0.41 ms/iter)* | **-90.6 % (~10.7×)** | < 300 ms @ 1000 iters |
-| `river_degenerate_spot` | 363.13 µs @ 1000 iters | 268.15 µs @ 1000 iters | **13.02 ms @ 1000 iters** | +4755 % (see note) | < 50 ms @ 1000 iters |
-| `river_wet_board`       | 667.14 ms @ 100 iters | 589.27 ms @ 100 iters | **41.81 ms @ 100 iters** *(~0.42 ms/iter)* | **-92.9 % (~14.1×)** | < 500 ms @ 1000 iters |
+| Bench | Day 1 (scalar+HashMap, A62) | Day 2+3 (flat+SIMD, A64) | v0.2 (Vector CFR, A70) | v0.2 + walk-SIMD (A74) | Δ vs A70 | v0.1 target |
+|---|---|---|---|---|---|---|
+| `river_canonical_spot`  | 478.23 ms @ 100 iters | 434.65 ms @ 100 iters | 40.70 ms @ 100 iters *(~0.41 ms/iter)* | **32.87 ms @ 100 iters** *(~0.33 ms/iter)* | **-19.2 %** | < 300 ms @ 1000 iters |
+| `river_degenerate_spot` | 363.13 µs @ 1000 iters | 268.15 µs @ 1000 iters | 13.02 ms @ 1000 iters | **9.23 ms @ 1000 iters** | **-29.1 %** | < 50 ms @ 1000 iters |
+| `river_wet_board`       | 667.14 ms @ 100 iters | 589.27 ms @ 100 iters | 41.81 ms @ 100 iters *(~0.42 ms/iter)* | **35.50 ms @ 100 iters** *(~0.36 ms/iter)* | **-15.1 %** | < 500 ms @ 1000 iters |
 
-**Post-A70 numbers are criterion mean on Henry's M-series MacBook,
-clean run, commit `7d6556e` with `CfrPlusVector` wired through
-`benches/river.rs`. See `bench-history/2026-04-23_182335_7d6556e.json`
-for the full snapshot.**
+**Post-A74 numbers are criterion mean on Henry's M-series MacBook,
+clean run, commit `1ee50b9` with all 6 elementwise loops in
+`CfrPlusVector::walk` (reach-products × 2, node-util aggregations × 2,
+CFR+ regret clamp, strategy_sum update) converted from scalar autovec
+to explicit `wide::f32x8`. See
+`bench-history/2026-04-23_203607_1ee50b9.json` for the full snapshot.**
 
 **Extrapolated to 1000 iters:**
-- `river_canonical_spot` ~407 ms @ 1000 iters → clears 1 s hard limit,
-  over the 300 ms ideal target by ~107 ms.
-- `river_wet_board` ~418 ms @ 1000 iters → under the 500 ms target.
-- `river_degenerate_spot` stays at 13.02 ms @ 1000 iters regardless —
-  well under the 50 ms target even though the per-iter floor regressed.
+- `river_canonical_spot` ~329 ms @ 1000 iters → clears 1 s hard limit,
+  narrowly over the 300 ms ideal target by ~29 ms. A73 recs #2 (reach-
+  product `copy_from_slice` removal, ~8 %) and #3 (node_util aggregation
+  fusion across actions, ~5-8 %) are the compounding follow-ups that
+  should close the remaining gap.
+- `river_wet_board` ~355 ms @ 1000 iters → under the 500 ms target.
+- `river_degenerate_spot` at 9.23 ms @ 1000 iters — 5.4× under the
+  50 ms target. Walk-SIMD helps the trivial spot because the 1326-wide
+  reach vectors still flow through the elementwise loops, just now
+  8-wide-per-op.
 
 **Degenerate-spot regression note.** The vector solver always walks
 1326-wide reach vectors, even on a 1-combo-vs-1-combo spot where
 scalar would walk a single lane. The per-iteration floor is therefore
-higher for trivial spots (~13 µs/iter in vector vs ~0.27 µs/iter in
-A64 flat). This is an accepted trade-off: the trivial path is still
-186× under the 50 ms target, and real river spots (canonical, wet)
-net 10-14× faster. Only a small fraction of production traffic hits
-the trivial path — most river solves have 100+ viable combo pairs.
+higher for trivial spots (~9 µs/iter in A74 vector vs ~0.27 µs/iter
+in A64 flat). This is an accepted trade-off: the trivial path is still
+5.4× under the 50 ms target, and real river spots (canonical, wet)
+net 13-18× faster than A64 flat. Only a small fraction of production
+traffic hits the trivial path — most river solves have 100+ viable
+combo pairs. Walk-SIMD (A74) improved the trivial-spot case by 29 %
+because the 1326-wide vector plumbing benefits from 8-wide SIMD too.
 
 **Iteration-count note (2026-04-23, A62/A64).** The CFR+ inner
 loop on the two heavy spots still takes ~4-6 ms per iteration post-A64,

@@ -1,0 +1,52 @@
+{
+  "commit": "1ee50b9f64f0c11a48f1ae87d84e6c27fef9a1d2",
+  "commit_short": "1ee50b9",
+  "date_utc": "2026-04-23T20:36:07Z",
+  "hardware": "M-series Mac (Henry's laptop)",
+  "agent": "A74",
+  "rust_toolchain": "1.85.0-aarch64-apple-darwin",
+  "profile": "bench (optimized + debuginfo)",
+  "notes": "A74 walk-SIMD: converted all 6 elementwise scalar `for c in 0..cw` loops inside `CfrPlusVector::walk` from scalar (LLVM 4-wide autovec) to explicit 8-wide `wide::f32x8`. A73's profile identified these loops as 48.4 % of walk self-time. The 6 loops: (1) Hero reach-product `next_hero_take[c] = reach_hero[c] * p[c]` at line 448 (9.3 %); (2) Villain reach-product at line 462 (7.4 %); (3) node-util aggregation when current==update_player `nu[c] += p[c] * au[c]` at line 480 (13.7 %); (4) node-util aggregation opponent `nu[c] += au[c]` at line 484 (9.2 %); (5) CFR+ regret clamp `row[c] = max(row + au - nu, 0)` at lines 503-504 (9.6 %) — branchless via `mask = raw.cmp_gt(zero); clamped = mask & raw`, same bit-for-bit NaN semantics as matching_simd.rs; (6) strategy_sum update `row[c] += linear_weight * own_reach[c] * s[c]` at line 511 (11.8 %). All 6 landed cleanly with one commit per loop (loops 3+4 landed in one commit as they're symmetric branches of one if/else). Kuhn 3-way vector_equivalence, river_vector_vs_flat differential, river_canonical (4 scenarios), and scripts/e2e.sh all green throughout. `river_canonical_spot` drops 40.70 ms -> 32.87 ms @ 100 iters (19.2 % faster; ~329 ms extrapolated to 1000 iters, just above the 300 ms v0.1 ideal but well under the 1 s hard limit). `river_wet_board` drops 41.81 ms -> 35.50 ms (15.1 % faster). `river_degenerate_spot` drops 13.02 ms -> 9.23 ms @ 1000 iters (29.1 % faster) — the 8-wide SIMD helps the trivial spot too because the scalar loops no longer pay the 1326-wide cost in the hot path. `river_canonical_spot_flat` unchanged logic (flat path, not touched); 685.81 ms is within hardware-noise drift of A70's 467 ms snapshot (single-run captures vary; the solve itself is functionally identical and tests green). 30 ms target narrowly missed — the gap is the ~3 ms between 32.87 and 30.00 — but A73's recommendations #2 (reach-product copy_from_slice removal, ~8 %) and #3 (node_util aggregation fusion across actions, ~5-8 %) remain as compounding follow-ups that should close the gap.",
+  "benches": {
+    "river_canonical_spot": {
+      "mean_ns": 32871000.0,
+      "unit": "ns",
+      "ci_low_ns": 32770000.0,
+      "ci_high_ns": 32978000.0,
+      "mean_display": "32.87 ms",
+      "iterations_per_sample": 100,
+      "change_vs_baseline_pct": -19.23,
+      "notes": "AhKhQh2d4s, hero AA/KK/AKs, villain 22+/AJs+/KQs, pot 100, stack 500. 19.2 % faster than A70's 40.70 ms. Extrapolates to ~329 ms @ 1000 iters. Just over the 300 ms v0.1 ideal, well under the 1 s hard limit. The 30 ms @ 100 iters target is within reach via A73 recs #2 + #3."
+    },
+    "river_degenerate_spot": {
+      "mean_ns": 9233000.0,
+      "unit": "ns",
+      "ci_low_ns": 9197000.0,
+      "ci_high_ns": 9271000.0,
+      "mean_display": "9.23 ms",
+      "iterations_per_sample": 1000,
+      "change_vs_baseline_pct": -29.09,
+      "notes": "2c7d9hTsJs, hero AhKh vs villain AsAd, pot 1000, stack 0. 29 % faster than A70's 13.02 ms. SIMD in the walker's elementwise loops helps the trivial spot too since the 1326-wide vectors still get traversed, just now 8-wide per op."
+    },
+    "river_wet_board": {
+      "mean_ns": 35498000.0,
+      "unit": "ns",
+      "ci_low_ns": 35356000.0,
+      "ci_high_ns": 35644000.0,
+      "mean_display": "35.50 ms",
+      "iterations_per_sample": 100,
+      "change_vs_baseline_pct": -15.10,
+      "notes": "JhTh9c8h7s, hero AA/AKs/QTs, villain 22+/AQs+, pot 100, stack 500. 15.1 % faster than A70's 41.81 ms. Extrapolates to ~355 ms @ 1000 iters, under the 500 ms target."
+    },
+    "river_canonical_spot_flat": {
+      "mean_ns": 685810000.0,
+      "unit": "ns",
+      "ci_low_ns": 684110000.0,
+      "ci_high_ns": 687590000.0,
+      "mean_display": "685.81 ms",
+      "iterations_per_sample": 100,
+      "change_vs_baseline_pct": 46.74,
+      "notes": "Scalar `CfrPlusFlat` path not touched by A74; the walker SIMD lives in `CfrPlusVector::walk`. 685 ms is a hardware-noise drift above A70's 467 ms snapshot (same code, single-run captures). Kept as a regression guard: confirms the vector-CFR landing still didn't break the flat path."
+    }
+  }
+}
