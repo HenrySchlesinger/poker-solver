@@ -1,6 +1,8 @@
 # poker-solver
 
 [![CI](https://github.com/henryschlesinger/poker-solver/actions/workflows/ci.yml/badge.svg)](https://github.com/henryschlesinger/poker-solver/actions/workflows/ci.yml)
+[![Rust: 1.82](https://img.shields.io/badge/rust-1.82-orange.svg)](./rust-toolchain.toml)
+[![License: Proprietary](https://img.shields.io/badge/license-proprietary-red.svg)](#license)
 
 A local NLHE GTO solver, built to power live-broadcast overlays in
 [Poker Panel](~/Desktop/Poker%20Panel) — the $60/mo macOS streaming app.
@@ -38,6 +40,35 @@ cargo run -p solver-cli -- solve \
     --pot 100 --stack 1000
 ```
 
+Before tagging a release, run `scripts/ship.sh` — it chains the fmt /
+clippy / test / bench-compile / ffi-artifact gates in one go. See
+[docs/SHIP_V0_1.md](docs/SHIP_V0_1.md) for the full ship checklist.
+
+## Quick install (Poker Panel integrators)
+
+Full guide: [docs/INTEGRATION.md](docs/INTEGRATION.md). TL;DR:
+
+```bash
+# Grab the release artifact
+gh release download v0.1.0 \
+    --repo henryschlesinger/poker-solver \
+    --pattern 'libsolver_ffi.a' \
+    --pattern 'solver.h'
+```
+
+Then in your Xcode target: add `libsolver_ffi.a` to **Frameworks,
+Libraries, and Embedded Content**, point your bridging header at
+`solver.h`, and call:
+
+```swift
+let handle = solver_new()
+defer { solver_free(handle) }
+var result = SolveResult()
+if solver_solve(handle, &state, &result) == Ok {
+    overlay.render(result)
+}
+```
+
 ## Layout
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). TL;DR:
@@ -69,6 +100,43 @@ crates/
 
 Convergence speed on the river inner loop. Everything else is tractable.
 See [docs/LIMITING_FACTOR.md](docs/LIMITING_FACTOR.md).
+
+## Release + integration docs
+
+- [CHANGELOG.md](CHANGELOG.md) — what landed in each tag.
+- [docs/SHIP_V0_1.md](docs/SHIP_V0_1.md) — ship checklist for v0.1.
+- [docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md) — tag → build → publish runbook.
+- [docs/INTEGRATION.md](docs/INTEGRATION.md) — Poker Panel consumer guide.
+- [docs/RELEASE_NOTES_v0.1.md](docs/RELEASE_NOTES_v0.1.md) — customer-
+  facing summary for the v0.1 tag.
+
+## Installing for Poker Panel integration
+
+Once v0.1.0 is tagged and released, Swift Package Manager consumers can
+pin to the published release (`crates/solver-ffi/Package.swift` is the
+scaffold — see [docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md) for
+the full xcframework wrapping status):
+
+```swift
+.package(url: "https://github.com/HenrySchlesinger/poker-solver", from: "0.1.0")
+```
+
+For the v0.1 manual-integration path (static lib + header, no SwiftPM
+binary target yet), the commands are:
+
+```bash
+VERSION=v0.1.0
+gh release download "$VERSION" \
+    --repo HenrySchlesinger/poker-solver \
+    --pattern "solver-$VERSION-macos-universal.tar.gz*"
+shasum -a 256 -c "solver-$VERSION-macos-universal.tar.gz.sha256"
+tar xzf "solver-$VERSION-macos-universal.tar.gz"
+# -> solver-v0.1.0/lib/libsolver_ffi.{a,dylib}
+# -> solver-v0.1.0/include/solver.h
+```
+
+Then follow the Xcode drop-in steps in
+[docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md#manual-consumer-integration-v01-path).
 
 ## License
 
