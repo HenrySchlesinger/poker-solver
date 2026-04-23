@@ -1,0 +1,18 @@
+# Pins the Rust toolchain used by this repo so Henry's Mac, GitHub
+# Actions, and Colab all build with the same compiler. `rustup` picks
+# this up automatically when you run any cargo command in the repo.
+#
+# Pinned to 1.82.0 because:
+#   - it's well above the workspace MSRV of 1.75 (see Cargo.toml
+#     `rust-version`), so we still accept contributors on older stable;
+#   - it's old enough to be widely cached on GitHub's macos-14 runners;
+#   - it's recent enough to have stable features we depend on (rayon,
+#     criterion, std::hint::black_box, etc).
+#
+# Bump this when we adopt a feature that needs a newer compiler — do not
+# bump it by default.
+
+[toolchain]
+channel = "1.82.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
