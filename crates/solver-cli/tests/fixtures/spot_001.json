@@ -1,0 +1,22 @@
+{
+  "id": "spot_001",
+  "name": "Dry AK-high flop, BB vs BTN SRP",
+  "description": "Single-raised pot, dry broadway-heavy board. Narrow ranges on both sides (6 hero vs 8 villain combos) to keep the reference output easy to eyeball against TexasSolver. Classic c-bet study spot: hero has a ton of equity with AA/KK/AKs/AKo but has to balance checks with JJ/QQ.",
+  "street": "flop",
+  "input": {
+    "board": "AhKd2c",
+    "hero_range": "AA, KK, AKs, AKo, QQ, JJ",
+    "villain_range": "77-TT, AQs, AQo, AJs, KQs",
+    "pot": 60,
+    "effective_stack": 970,
+    "to_act": "hero",
+    "bet_tree": "default_v0_1"
+  },
+  "iterations": 1000,
+  "tolerances": {
+    "action_freq_abs": 0.05,
+    "ev_bb_abs": 0.10
+  },
+  "expected_reference": "texassolver",
+  "expected_notes": "Populated by differential run; this is the golden slot that the convergence suite is first calibrated against."
+}

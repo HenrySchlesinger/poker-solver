@@ -1,0 +1,22 @@
+{
+  "id": "spot_004",
+  "name": "Mid-dry connected 873, BTN SRP",
+  "description": "Mid-board rainbow with some connectivity (65 makes a straight draw, 87 is top pair). Not as wet as a two-tone but enough action that BTN can't just auto c-bet. Ranges are BTN SRP open (hero) vs BB defend (villain). Tests the solver's handling of medium-texture flops where neither range has a dominant equity edge.",
+  "street": "flop",
+  "input": {
+    "board": "8h7c3d",
+    "hero_range": "22+, A2s, A3s, A4s, A5s, A6s, A7s, A8s, A9s, ATs, AJs, AQs, AKs, K9s, KTs, KJs, KQs, Q9s, QTs, QJs, J9s, JTs, T9s, 98s, 87s, 76s, 65s, A9o, ATo, AJo, AQo, AKo, KTo, KJo, KQo, QTo, QJo, JTo",
+    "villain_range": "55-TT, A2s, A3s, A4s, A5s, A6s, A7s, A8s, A9s, ATs, AJs, AQs, AKs, K2s, K3s, K4s, K5s, K6s, K7s, K8s, K9s, KTs, KJs, KQs, Q7s, Q8s, Q9s, QTs, QJs, J8s, J9s, JTs, T7s, T8s, T9s, 97s, 98s, 86s, 87s, 75s, 76s, 64s, 65s, 53s, 54s, A9o, ATo, AJo, AQo, AKo, KTo, KJo, KQo, QTo, QJo, JTo",
+    "pot": 60,
+    "effective_stack": 970,
+    "to_act": "hero",
+    "bet_tree": "default_v0_1"
+  },
+  "iterations": 1000,
+  "tolerances": {
+    "action_freq_abs": 0.05,
+    "ev_bb_abs": 0.10
+  },
+  "expected_reference": "texassolver",
+  "expected_notes": "Populated by differential run. Expected: BTN c-bets less often than on Ah-high / Q-high dry because BB's range connects better (65, 87, 98 all made/drawing)."
+}

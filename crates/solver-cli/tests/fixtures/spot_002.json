@@ -1,0 +1,22 @@
+{
+  "id": "spot_002",
+  "name": "Dry Q72 rainbow, BTN c-bet study",
+  "description": "BTN open, BB calls; BTN is first to act postflop in this spot (hero = BTN). Dry low-connectivity rainbow — classic solver C-bet spot where polarized sizings dominate. The hero_range is a standard BTN SRP open (enumerated explicitly to work around the range parser's first-rank-iterates semantics for X Ys+). The villain_range is a narrower BB defend: removes very weak hands that would have folded preflop.",
+  "street": "flop",
+  "input": {
+    "board": "Qs7d2h",
+    "hero_range": "22+, A2s, A3s, A4s, A5s, A6s, A7s, A8s, A9s, ATs, AJs, AQs, AKs, K9s, KTs, KJs, KQs, Q9s, QTs, QJs, J9s, JTs, T9s, 98s, 87s, 76s, 65s, A9o, ATo, AJo, AQo, AKo, KTo, KJo, KQo, QTo, QJo, JTo",
+    "villain_range": "55-TT, A2s, A3s, A4s, A5s, A8s, A9s, ATs, AJs, AQs, AKs, K9s, KTs, KJs, KQs, Q9s, QTs, QJs, J9s, JTs, T9s, 98s, 87s, 76s, 65s, ATo, AJo, AQo, AKo, KJo, KQo, QJo",
+    "pot": 60,
+    "effective_stack": 970,
+    "to_act": "hero",
+    "bet_tree": "default_v0_1"
+  },
+  "iterations": 1000,
+  "tolerances": {
+    "action_freq_abs": 0.05,
+    "ev_bb_abs": 0.10
+  },
+  "expected_reference": "texassolver",
+  "expected_notes": "Populated by differential run. BTN c-bet frequency on dry Q-high boards is expected high (~70%+); watch the per-combo mix on Q7s-type hands."
+}
