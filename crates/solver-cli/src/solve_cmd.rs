@@ -624,11 +624,20 @@ fn build_result_json(summary: &SolveSummary, iterations: u32, compute_ms: u64) -
         .map(|(k, v)| (k.clone(), Value::from(*v)))
         .collect();
 
+    // v0.1: exploitability reporting is broken (see
+    // docs/EXPLOITABILITY_TRIAGE.md). The `CfrPlus::exploitability()`
+    // helper walks `Game::initial_state()` — a phantom root whose info
+    // sets CFR never trained on — so the number it reports is a
+    // pot-proportional fallback-strategy artifact, not a real Nash
+    // distance. Emit null until the root-aware helper lands post-v0.1.
+    // The `summary.exploitability` field is still populated for the
+    // logs and for future use, but not surfaced in the JSON wire format.
+    let _ = summary.exploitability;
     json!({
         "action_frequencies": freq_obj,
         "ev_per_action": ev_obj,
         "hero_equity": summary.hero_equity,
-        "exploitability": summary.exploitability,
+        "exploitability": Value::Null,
         "iterations": iterations,
         "compute_ms": compute_ms,
     })

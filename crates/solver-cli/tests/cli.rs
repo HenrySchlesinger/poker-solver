@@ -175,4 +175,17 @@ fn solve_produces_valid_json_end_to_end() {
             "result missing `{key}`: {result}"
         );
     }
+
+    // v0.1: `exploitability` is a null sentinel, not a number. See
+    // docs/EXPLOITABILITY_TRIAGE.md — the underlying walker reports a
+    // phantom-root artifact that scales with pot size, not a real Nash
+    // distance, so we emit JSON null until the root-aware helper lands
+    // post-v0.1. Assert null here so a future edit that wires the
+    // broken number back into the JSON fails loudly.
+    assert!(
+        result.get("exploitability").unwrap().is_null(),
+        "v0.1: result.exploitability must be JSON null (see \
+         EXPLOITABILITY_TRIAGE.md); got {}",
+        result["exploitability"]
+    );
 }
