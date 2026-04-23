@@ -215,6 +215,10 @@ baseline run. The append-only source of truth lives in
 [`bench-history/`](../bench-history/) — one dated JSON per run. Recent
 snapshots:
 
+- `bench-history/2026-04-23_145752_0e590c0.json` (commit `0e590c0`, agent
+  A72) — hand-rolled NEON showdown-matmul experiment (see "A72 NEON
+  experiment" below). **No measurable gain** over `wide::f32x8` on
+  aarch64; A70 remains the reference numbers.
 - `bench-history/2026-04-23_182335_7d6556e.json` (commit `7d6556e`, agent
   A70) — **current river KPI snapshot**: Vector CFR landed as default.
 - `bench-history/2026-04-23_110058_3480502.json` (commit `3480502`, agent
@@ -321,6 +325,66 @@ equivalence to 1e-6 holds, NLHE river still produces matching JSON),
 and it delivers a real ~10-26% gain. The meaningful next optimization
 is not more SIMD on the current layout — it's changing the layout so
 the SIMD can bite.
+
+### A72 NEON experiment (2026-04-23): showdown matmul widening
+
+**Hypothesis.** Replace the `i8 → f32` widening step inside
+`showdown_matmul_rows` / `showdown_matmul_cols` with hand-rolled NEON
+intrinsics (`vmovl_s8` / `vmovl_s16` / `vcvtq_f32_s32` on 16 lanes at
+a time). The pre-A72 kernel uses `wide::f32x8` with a scalar `as f32`
+cast lambda — easy for LLVM to misoptimize. Expected: 2-3× on the
+widening, bringing `river_canonical_spot` into the 30 ms range at
+100 iters (the 300 ms @ 1000 iters target).
+
+**Result: no measurable gain.** Same-machine, same-session criterion
+baseline comparison (commit `0e590c0` vs pre-NEON `9fac35e`):
+
+| Bench | pre-NEON | post-NEON | Change |
+|---|---|---|---|
+| `river_canonical_spot`  | 57.46 ms | 57.65 ms | +0.3 % (noise) |
+| `river_degenerate_spot` | 18.49 ms | 18.45 ms | -0.2 % (noise) |
+| `river_wet_board`       | 59.48 ms | 60.09 ms | +1.0 % (noise) |
+
+*(Absolute numbers are ~40 % higher than the A70 reference because
+the bench machine was under broader background load at A72
+measurement time — the `*_flat` regression guard moved the same way,
+confirming the drift is machine-wide, not kernel-specific.)*
+
+**Why.** On aarch64 the `wide::f32x8` path already lowers to
+`SXTL`/`SXTL2` + `SCVTF` widening chains: LLVM sees the 8-element
+scalar cast and auto-vectorizes it to the same NEON sequence the
+hand-rolled kernel uses. The accumulation step (`pos += max(rs, 0)`
+and `neg += max(-rs, 0)`) is identical in the two paths. With equal
+ops and equal memory traffic, no gain was available here.
+
+**Correctness pitfall worth recording.** The first integration had
+`#[target_feature(enable = "neon")]` on each NEON kernel. Even though
+NEON is part of the aarch64 baseline ISA, the attribute creates an
+inline barrier in LLVM — the kernel was emitted as a real function
+call per row, adding ~20 ns × 1326 × 2 = ~53 µs per CFR+ iteration on
+top of the actual work. On the degenerate spot this was visible as a
++118 % (40 ms vs 18 ms) regression. Dropping the attribute restored
+parity. **If you ever hand-roll NEON on aarch64, do not add
+`#[target_feature(enable = "neon")]`** — it's redundant and it
+defeats `#[inline(always)]`.
+
+**What stays.** The NEON module (`subgame_vector_neon.rs`) and the
+dispatch helpers in `subgame_vector.rs` land on `main`. They are
+equivalent in performance to the `wide` path but sit in a position
+that makes a future NEON-only optimization (e.g., fused regret-update
++ strategy-accumulate, or NEON-backed root-aware exploitability)
+trivially wirable. Unit tests (4 in `subgame_vector_neon::tests`)
+guarantee scalar-equivalence to 1e-3 across 100 random inputs per
+kernel, so any future edit regresses loudly.
+
+**What doesn't close the gap.** The remaining 107 ms on
+`river_canonical_spot` vs the 300 ms @ 1000 iters ideal is not the
+widening. Candidate culprits to profile next: (a) L1 pressure from
+the 1.76 MB `showdown_sign` matrix across a CFR+ iteration's repeated
+row scans, (b) regret-matching SIMD inside `CfrPlusVector` (where
+action sets ≤ 5 but combo axis is 1326 — the threshold check in
+`matching_simd.rs` might be routing to scalar unnecessarily), (c) the
+tree-walker's info-set-id hashing.
 
 ### Inner-loop microbench (`regret_matching` — scalar only, Day 1 owns this file)
 

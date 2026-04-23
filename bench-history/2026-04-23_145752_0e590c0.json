@@ -1,0 +1,56 @@
+{
+  "commit": "0e590c062d4acb8616dff02284cc69d9bc740129",
+  "commit_short": "0e590c0",
+  "date_utc": "2026-04-23T19:57:52Z",
+  "hardware": "M-series Mac (Henry's laptop)",
+  "agent": "A72",
+  "rust_toolchain": "1.85.0-aarch64-apple-darwin",
+  "profile": "bench (optimized + debuginfo)",
+  "notes": "Hand-rolled NEON intrinsic showdown matmul (subgame_vector_neon.rs) to try to close the 28% gap to the 300 ms @ 1000 iters target on river_canonical_spot. Replaced the i8->f32 widening + pos/neg accumulation in both showdown_matmul_rows and showdown_matmul_cols with NEON kernels (vld1q_s8 -> vmovl_s8/vmovl_s16 -> vcvtq_f32_s32, then vmaxq_f32 for the pos/neg split). Dispatch helpers (showdown_row_pos_neg, showdown_row_scatter_pos_neg) select NEON on aarch64 and keep a wide::f32x8 fallback for x86/scalar targets, both #[inline(always)]. Unit tests in subgame_vector_neon verify equivalence to scalar on 100 random inputs per kernel (dot, pos/neg, scatter) plus a tail-coverage sanity check. All solver-nlhe + solver-core tests pass, scripts/e2e.sh all 3 paths green. FINDING: NEON hand-rolling did NOT beat the pre-existing wide::f32x8 path on aarch64 because LLVM already compiled the `as f32` widening into SXTL/SXTL2 + SCVTF sequences for the f32x8-backed wide ops. Criterion baseline comparison on the same machine at the same run shows: river_canonical_spot 57.46 -> 57.65 ms (+0.3%, noise), river_degenerate_spot 18.49 -> 18.45 ms (-0.2%, noise), river_wet_board 59.48 -> 60.09 ms (+1.0%, noise). First integration attempt (with #[target_feature(enable=\"neon\")]) regressed degenerate by 2x due to an inline barrier — removing the attribute restored parity. The kernel is correct and inlined, but the underlying i8->f32 widening was not the bottleneck the earlier hypothesis assumed. Machine numbers are ~40% higher than the A70 snapshot across ALL benches (flat_canonical went 467 -> 674 ms) indicating background CPU load at measurement time — the v0.1 A70 numbers are the canonical reference for target-hit checks. The NEON module remains in-tree as a documented dead-end: a working alternative implementation, useful as a reference point. The real bottleneck for the remaining 107 ms gap on canonical is not the widening — a profile is needed to identify what is (likely L1 pressure on the 1.76 MB showdown matrix, or regret-matching SIMD, or the tree walker).",
+  "benches": {
+    "river_canonical_spot": {
+      "mean_ns": 57649000.0,
+      "unit": "ns",
+      "ci_low_ns": 57538000.0,
+      "ci_high_ns": 57786000.0,
+      "mean_display": "57.65 ms",
+      "iterations_per_sample": 100,
+      "change_vs_baseline_pct": 0.34,
+      "baseline": "pre_neon (commit 9fac35e) on same machine, same session",
+      "notes": "AhKhQh2d4s, hero AA/KK/AKs, villain 22+/AJs+/KQs, pot 100, stack 500. No measurable change vs wide::f32x8. Machine was under ~40% broad load at bench time (Poker Panel + Claude + WindowServer active), so absolute number is ~40% higher than A70's 40.70 ms reference. On a quiescent machine the NEON and wide paths should both be in the 40-42 ms range."
+    },
+    "river_degenerate_spot": {
+      "mean_ns": 18450000.0,
+      "unit": "ns",
+      "ci_low_ns": 18423000.0,
+      "ci_high_ns": 18485000.0,
+      "mean_display": "18.45 ms",
+      "iterations_per_sample": 1000,
+      "change_vs_baseline_pct": -0.22,
+      "baseline": "pre_neon on same machine, same session",
+      "notes": "2c7d9hTsJs, hero AhKh vs villain AsAd, pot 1000, stack 0. Equivalent to wide path. First integration had #[target_feature(enable=\"neon\")] which regressed this spot by +118% (40.45 ms) due to the inline barrier — removing the attribute restored parity. Machine-load-adjusted to A70's 13.02 ms reference."
+    },
+    "river_wet_board": {
+      "mean_ns": 60092000.0,
+      "unit": "ns",
+      "ci_low_ns": 59951000.0,
+      "ci_high_ns": 60270000.0,
+      "mean_display": "60.09 ms",
+      "iterations_per_sample": 100,
+      "change_vs_baseline_pct": 1.02,
+      "baseline": "pre_neon on same machine, same session",
+      "notes": "JhTh9c8h7s, hero AA/AKs/QTs, villain 22+/AQs+. Within noise of wide path. Machine-load-adjusted to A70's 41.81 ms reference."
+    },
+    "river_canonical_spot_flat": {
+      "mean_ns": 674280000.0,
+      "unit": "ns",
+      "ci_low_ns": 673050000.0,
+      "ci_high_ns": 675630000.0,
+      "mean_display": "674.28 ms",
+      "iterations_per_sample": 100,
+      "change_vs_baseline_pct": -16.29,
+      "baseline": "pre_neon on same machine, same session",
+      "notes": "Scalar CfrPlusFlat path — does NOT use subgame_vector or the NEON kernel. The 16% improvement is machine-load drift between the pre_neon and post runs (the background load shifted), not a real change. Both numbers are ~40-70% higher than A70's 467.38 ms reference, same mechanism. Included as a regression guard only — a tree-walker change would move this number, and nothing in this commit touched the flat path."
+    }
+  }
+}
