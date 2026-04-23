@@ -699,7 +699,7 @@ fn board_card_mask(board: &Board) -> u64 {
 ///
 /// On aarch64 dispatches to the hand-rolled NEON kernel; elsewhere
 /// uses the `wide::f32x8` fallback kept for x86/scalar targets.
-#[inline]
+#[inline(always)]
 fn showdown_row_pos_neg(sign_row: &[i8; NUM_COMBOS], reach_opp: &[f32]) -> (f32, f32) {
     #[cfg(target_arch = "aarch64")]
     {
@@ -728,7 +728,7 @@ fn showdown_row_pos_neg(sign_row: &[i8; NUM_COMBOS], reach_opp: &[f32]) -> (f32,
 ///
 /// On aarch64 dispatches to the hand-rolled NEON kernel; elsewhere
 /// uses the `wide::f32x8` fallback.
-#[inline]
+#[inline(always)]
 fn showdown_row_scatter_pos_neg(
     sign_row: &[i8; NUM_COMBOS],
     r: f32,

@@ -44,7 +44,15 @@ use solver_eval::combo::NUM_COMBOS;
 /// # Panics (debug only)
 ///
 /// Debug-asserts that both inputs have length [`NUM_COMBOS`].
-#[target_feature(enable = "neon")]
+///
+/// # Inlining
+///
+/// Deliberately NOT marked `#[target_feature(enable = "neon")]` —
+/// NEON is part of the aarch64 baseline ISA, so the attribute is
+/// redundant, and adding it creates an inline barrier that defeats
+/// the point (the kernel is one small function that must inline into
+/// the tight matmul loop to avoid a real function call per row).
+#[inline(always)]
 pub unsafe fn showdown_row_dot_neon(sign_row: &[i8], weights: &[f32]) -> f32 {
     debug_assert_eq!(sign_row.len(), NUM_COMBOS);
     debug_assert_eq!(weights.len(), NUM_COMBOS);
@@ -109,7 +117,12 @@ pub unsafe fn showdown_row_dot_neon(sign_row: &[i8], weights: &[f32]) -> f32 {
 /// # Panics (debug only)
 ///
 /// Debug-asserts that both inputs have length [`NUM_COMBOS`].
-#[target_feature(enable = "neon")]
+///
+/// # Inlining
+///
+/// See [`showdown_row_dot_neon`] — no `#[target_feature]` attribute so
+/// the kernel inlines into `showdown_matmul_rows`' per-row loop.
+#[inline(always)]
 pub unsafe fn showdown_row_pos_neg_neon(sign_row: &[i8], weights: &[f32]) -> (f32, f32) {
     debug_assert_eq!(sign_row.len(), NUM_COMBOS);
     debug_assert_eq!(weights.len(), NUM_COMBOS);
@@ -184,7 +197,12 @@ pub unsafe fn showdown_row_pos_neg_neon(sign_row: &[i8], weights: &[f32]) -> (f3
 ///
 /// Debug-asserts that `sign_row`, `pos_out`, and `neg_out` all have
 /// length [`NUM_COMBOS`].
-#[target_feature(enable = "neon")]
+///
+/// # Inlining
+///
+/// See [`showdown_row_dot_neon`] — no `#[target_feature]` attribute so
+/// the kernel inlines into `showdown_matmul_cols`' per-row loop.
+#[inline(always)]
 pub unsafe fn showdown_row_scatter_pos_neg_neon(
     sign_row: &[i8],
     r: f32,
